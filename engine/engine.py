@@ -294,7 +294,7 @@ class SemanticEngine:
             word = getattr(choice, 'head_word', None) or ''
             if getattr(choice, 'unknown', None) or self.bm25.df(word) < 20:
                 return False
-        if choice.product_types or choice.colors or getattr(choice, 'occasion', False):
+        if choice.product_types or choice.colors or choice.patterns or getattr(choice, 'occasion', False):
             return True
         return pool.best_coverage >= EVIDENCE_COVERAGE
 

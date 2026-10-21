@@ -145,7 +145,7 @@ ADULT_CONTEXT_RE = re.compile(r'\b(?:at work|work|office|colleague|coworker|co-w
 CHILD_CONTEXT_RE = re.compile(r'\b(?:daughter|niece|little|toddler|kid|kids|child|children|school|baby|year old|'
                               r'years old|yr old|granddaughter|beti)\b')
 # Words whose singular is an adjective while the plural names a garment.
-ADJECTIVE_FORMS = {'short'}
+ADJECTIVE_FORMS = {'short', 'tight'}
 IDIOM_RE = re.compile(r"\b(?:over the top|on top of|top notch|top-notch|tip top|on top)\b")
 BACK_REFERENCES = {'it', 'them', 'this', 'that', 'these', 'those', 'one', 'it too', 'them too'}
 # "unicorn stuff", "cute things": the object is "clothing in general".
@@ -610,6 +610,11 @@ class RulePlanner:
         # A budget absorbed into a choice is the same budget, not a second one.
         main_budgets = list({id(b): b for s in segments for b in s.budgets}.values())
         choices_segs = self._distribute_headers(choices_segs)
+        if context is not None and not back_reference and context.types and len(choices_segs) >= 2 and any(
+                set(context.types) & set(x.types) for x in choices_segs if x.start < context_start):
+            # "... trousers, a blouse and pumps, plus a belt to go with the trousers": the item before
+            # the marker accompanies one already asked for.
+            back_reference, backref_at, context = True, context_start, None
         owned = self._owned(choices_segs, own, clean, back_reference, backref_at)
         if owned:
             # "I bought a navy blazer, find me a tie to go with it": the blazer is context.
@@ -642,7 +647,7 @@ class RulePlanner:
                 # the marker accompany together; a comma, "+" or "plus" ends the run.
                 run = [before[-1]]
                 for prev in reversed(before[:-1]):
-                    if not re.fullmatch(r'\s*(?:and|n|&)\s*', main[prev.end:run[0].start]):
+                    if not re.fullmatch(r'\s*(?:and|n|&|or)\s*', main[prev.end:run[0].start]):
                         break
                     run.insert(0, prev)
                 if run[0] is before[0]:

@@ -2668,3 +2668,13 @@ FOREIGN_WORDS.update({'botines': 'ankle boots', 'azul marino': 'navy', 'esposo':
                       'frau': 'wife', 'abotoaduras': 'cufflinks', 'azul claro': 'light blue',
                       'azul clarinho': 'light blue', 'cada': 'each', 'fils': 'son', 'mochila': 'backpack'})
 AUDIENCE_WORDS.update({'goddaughter': 'girls', 'godson': 'boys', 'grandkid': 'kids'})
+
+# Costume themes, the hair as a need ("something to keep my hair tied back"), Hinglish "shiny",
+# and the yoga pose that is not a dog.
+for _theme in ('witch', 'pirate', 'vampire', 'zombie', 'superhero'):
+    TYPE_WORDS[_theme] = (['Costumes', 'Dress', 'Jumpsuit/Playsuit', 'Other accessories', 'Bodysuit'],
+                          [_theme, 'costume'] if _theme != 'superhero' else ['costume'])
+BODY_PART_WORDS['hair'] = (['Hair/alice band', 'Hair clip', 'Hair string', 'Hair ties'], ['hair'])
+FOREIGN_WORDS.update({'chamakdaar': 'sparkly', 'chamakdar': 'sparkly', 'chamkila': 'sparkly', 'chamkili': 'sparkly'})
+STOP_PHRASES.update({'downward dog', 'downward facing dog'})
+TYPE_WORDS['jumpsuit'] = (['Jumpsuit/Playsuit'], ['jumpsuit'])

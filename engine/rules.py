@@ -635,6 +635,13 @@ class RulePlanner:
         if len(choices_segs) > 1 and (each or len(main_budgets) == 1):
             for s in choices_segs:
                 s.budgets = list(main_budgets)
+        if each:
+            # "a white shirt and a tie to go with it, dono 2000 ke andar": the budget is per item,
+            # wherever in the request it was said.
+            shared = main_budgets or (list(complement.budgets) if complement is not None else [])
+            for s in choices_segs + ([complement] if complement is not None else []):
+                if not s.budgets and shared:
+                    s.budgets = list(shared)
         if complement is not None and not complement.budgets and main_budgets and (each or len(main_budgets) == 1):
             complement.budgets = list(main_budgets)
 
@@ -938,7 +945,7 @@ class RulePlanner:
                 min_price = b.min_price if min_price is None else max(min_price, b.min_price)
             if b.max_price is not None:
                 max_price = b.max_price if max_price is None else min(max_price, b.max_price)
-        label = ' '.join(seg.text.split()) or ' '.join(seg.type_words)
+        label = ' '.join(seg.text.split()).strip(' ,.;:!?') or ' '.join(seg.type_words)
         choice = Choice(
             label=label[:120] or 'item', product_types=types, keywords=keywords, colors=colors,
             exclude_colors=exclude_colors, patterns=list(seg.patterns), exclude_patterns=list(seg.exclude_patterns),

@@ -25,6 +25,8 @@ SET_PARTS = {
     'top': {'Swimwear bottom': ['Bikini top', 'Swimwear top'], 'Underwear bottom': ['Bra'],
             'Pyjama bottom': ['Top', 'T-shirt', 'Vest top']},
 }
+# Kinds that stand in for each other: owning a coat, a jacket is no accompaniment.
+SAME_KIND = {'Coat': ('Jacket',), 'Jacket': ('Coat',), 'Sneakers': ('Other shoe',), 'Other shoe': ('Sneakers',)}
 # Bags for chores, not for an outfit ("cosmetic bag", "pencil case").
 UTILITY_WORDS = ['cosmetic', 'case', 'pencil', 'gymbag', 'packable', 'washbag', 'toiletry', 'laptop', 'lunch',
                  'pouch', 'waistbag', 'bumbag', 'backpack']
@@ -64,7 +66,7 @@ class Recommender:
         self.vocab = engine.vocab
         self.products = engine.products
 
-    def targets(self, plan, anchor, ref_type=None):
+    def targets(self, plan, anchor, ref_type=None, group=None):
         """(complement product types in priority order, keywords, explicit?).
 
         ref_type is the kind of item the shopper asked for (a suit's jacket even when the anchor
@@ -90,8 +92,12 @@ class Recommender:
             return [], list(comp.keywords), True
         types = self.vocab.complement_map.get(ref_type) or FALLBACK_COMPLEMENTS
         owned = set(getattr(plan, 'context_types', []) or [])
-        # Implicit complements never repeat the anchor's kind or what the shopper already has.
-        return [t for t in types if t != anchor['product_type'] and t not in owned], [], False
+        owned |= {t for o in owned for t in SAME_KIND.get(o, ())}
+        # Implicit complements never repeat the anchor's kind or what the shopper already has, and
+        # suit the wearer (no dress for a boy's sun hat).
+        other = {'men': 'women', 'boys': 'women', 'women': 'men', 'girls': 'men'}.get(group)
+        return [t for t in types if t != anchor['product_type'] and t not in owned
+                and (other is None or self.vocab.type_gender.get(t) != other)], [], False
 
     def hard_mask(self, plan, anchor_pid, page, anchor_choice=None):
         idx = self.index
@@ -130,7 +136,9 @@ class Recommender:
             return [], True          # the accompanying item asked for is not sold
         primary = list(getattr(anchor_choice, 'primary_types', None) or [])
         ref_type = anchor['product_type'] if not primary or anchor['product_type'] in primary else primary[0]
-        types, keywords, explicit = self.targets(plan, anchor, ref_type)
+        group = (getattr(anchor_choice, 'audience_group', None) or plan.audience_group
+                 or self.vocab.group_of(anchor_pid))
+        types, keywords, explicit = self.targets(plan, anchor, ref_type, group)
         mask = self.hard_mask(plan, anchor_pid, page, anchor_choice)
         bm = self.engine.bm25
         kw_terms = []

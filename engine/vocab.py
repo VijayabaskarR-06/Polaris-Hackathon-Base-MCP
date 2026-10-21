@@ -81,6 +81,7 @@ FOREIGN_ENDINGS = ('s', 'es', 'e', 'en', 'n', 'a', 'as', 'os', 'er')
 KIDS_AUDIENCES = ('Children Sizes 92-140', 'Children Sizes 134-170',
                   'Children Accessories, Swimwear', 'Baby Sizes 50-98')
 WOMEN_AUDIENCES = ('Ladieswear', 'Ladies Accessories', 'Lingeries/Tights', 'Divided')
+GENDER_SUFFIX_RE = re.compile(r'\b(SG|BG|YG|SB|BB|YB)\b')
 
 
 def table(name):
@@ -211,7 +212,7 @@ class Vocab:
         self.values = {f: list(index.values[f]) for f in STRING_FIELDS}
         self.canonical = {f: {fold(v): v for v in reversed(self.values[f])} for f in STRING_FIELDS}
         self._price_bands(products)
-        self._group_masks()
+        self._group_masks(products)
         self.matcher = PhraseMatcher()
         self._load_lexicon()
         self._spelling()
@@ -231,7 +232,7 @@ class Vocab:
             counts[p['product_type']][p['category']] += 1
         self.type_category = {t: max(c, key=c.get) for t, c in counts.items()}
 
-    def _group_masks(self):
+    def _group_masks(self, products):
         idx = self.index
         audience = idx.codes['audience']
         aud_values = idx.values['audience']
@@ -245,12 +246,16 @@ class Vocab:
             return np.isin(section, [i for i, s in enumerate(sec_values) if pred(s)])
 
         kids = audiences(KIDS_AUDIENCES) | sections(lambda s: s == 'Kids Sports')
+        # Shared kids sections (shoes, outerwear) mark gender in the name: "... sneaker SG" is a
+        # small girl's, "... SB" a small boy's.
+        suffix = np.array([(GENDER_SUFFIX_RE.search(p['name'] or '') or [None, ''])[1] for p in products])
+        girl_named, boy_named = np.isin(suffix, ('SG', 'BG', 'YG')), np.isin(suffix, ('SB', 'BB', 'YB'))
         self.group_masks = {
             'women': audiences(WOMEN_AUDIENCES) | sections(lambda s: s == 'Ladies H&M Sport'),
             'men': audiences(('Menswear',)) | sections(lambda s: s == 'Men H&M Sport'),
             'kids': kids,
-            'girls': kids & ~sections(lambda s: 'Boy' in s),
-            'boys': kids & ~sections(lambda s: 'Girl' in s),
+            'girls': kids & ~sections(lambda s: 'Boy' in s) & ~boy_named,
+            'boys': kids & ~sections(lambda s: 'Girl' in s) & ~girl_named,
             'baby': audiences(('Baby Sizes 50-98',)) | sections(lambda s: s.startswith('Baby')),
         }
         for mask in self.group_masks.values():

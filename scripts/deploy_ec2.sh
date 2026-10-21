@@ -23,14 +23,22 @@ if [ -z "$SG" ] || [ "$SG" = "None" ]; then
   aws ec2 authorize-security-group-ingress --region "$REGION" --group-id "$SG" --protocol tcp --port 8000 --cidr "$MY_IP/32" 2>/dev/null || true
 fi
 
+RAW=${REPO%.git}
+RAW=${RAW/github.com/media.githubusercontent.com\/media}
 cat > /tmp/polaris-user-data.sh <<EOF
 #!/bin/bash
 set -x
-dnf install -y docker git git-lfs
+dnf install -y docker git
+dnf install -y git-lfs || true
 systemctl enable --now docker
-git lfs install --system
-git clone -b $BRANCH $REPO /opt/polaris
-cd /opt/polaris && git lfs pull
+git lfs install --system || true
+GIT_LFS_SKIP_SMUDGE=1 git clone -b $BRANCH $REPO /opt/polaris
+cd /opt/polaris && (git lfs pull || true)
+# Without git-lfs the catalog is a pointer file: fetch the real one and check its SHA-256.
+if [ "\$(stat -c %s data/products.json)" -lt 1000000 ]; then
+  curl -sSL -o data/products.json "$RAW/$BRANCH/data/products.json"
+fi
+echo "05b6aa5e8e8c1c8c997d584f8288e432862454f8820531e13473443e83c8f073  data/products.json" | sha256sum -c
 docker build -t polaris /opt/polaris
 docker run -d --restart unless-stopped --name polaris -p 8000:8000 polaris
 EOF

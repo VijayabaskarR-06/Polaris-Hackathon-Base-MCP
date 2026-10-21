@@ -168,6 +168,19 @@ class PlanTests(unittest.TestCase):
         # Possession of an occasion is not an owned item.
         self.assertEqual(len(self.plan('I have a wedding to attend, need a dress and shoes').choices), 2)
 
+    def test_single_trailing_budget_is_per_item(self):
+        planner = RulePlanner(self.vocab)
+        # One stated budget bounds every item (the brief), wherever it is said.
+        plan = planner.plan('Find a black dress with a matching bag under INR 1500', recs=True)
+        self.assertEqual(plan.choices[0].max_price, 1500)
+        self.assertEqual(plan.complement.max_price, 1500)
+        plan = planner.plan('A dress for dinner under INR 2000 with a matching bag under INR 1000', recs=True)
+        self.assertEqual((plan.choices[0].max_price, plan.complement.max_price), (2000, 1000))
+        # No jacket costs 800: that budget can only be the scarf's.
+        plan = planner.plan('Find a winter jacket with a matching scarf under INR 800', recs=True)
+        self.assertIsNone(plan.choices[0].max_price)
+        self.assertEqual(plan.complement.max_price, 800)
+
     def test_context_sets_wearer_and_pairings(self):
         planner = RulePlanner(self.vocab)
         plan = planner.plan('What shoes go well with a red dress?', recs=False)

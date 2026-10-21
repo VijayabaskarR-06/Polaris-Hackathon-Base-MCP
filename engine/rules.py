@@ -692,6 +692,12 @@ class RulePlanner:
                     s.budgets = list(shared)
         if complement is not None and not complement.budgets and main_budgets and (each or len(main_budgets) == 1):
             complement.budgets = list(main_budgets)
+        if complement is not None and complement.budgets and not main_budgets and len(complement.budgets) == 1:
+            # "a black dress with a matching bag under INR 1500": the brief makes one stated budget
+            # per item, so it bounds the dress as well as the bag, unless no dress could meet it.
+            for s in choices_segs:
+                if not s.budgets and not self._priced_out(s, complement.budgets):
+                    s.budgets = list(complement.budgets)
 
         context_types = []
         if context is not None:

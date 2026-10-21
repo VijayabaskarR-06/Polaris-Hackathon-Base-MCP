@@ -120,12 +120,12 @@ class Recommender:
         return [t for t in types if t != anchor['product_type'] and t not in owned
                 and (other is None or self.vocab.type_gender.get(t) != other)], [], False
 
-    def hard_mask(self, plan, anchor_pid, page, anchor_choice=None):
+    def hard_mask(self, plan, anchor_pid, page, anchor_choice=None, use_group=True):
         idx = self.index
         mask = np.ones(idx.n, dtype=bool)
         group = (getattr(anchor_choice, 'audience_group', None) or plan.audience_group
                  or self.vocab.group_of(anchor_pid))
-        if group:
+        if group and use_group:
             mask &= self.vocab.group_masks[group]
             if group in ('kids', 'girls', 'boys'):
                 # A child's outfit stays in the child's size range: no baby socks for a schoolboy.
@@ -173,6 +173,13 @@ class Recommender:
         else:
             return [], explicit
         positions = np.flatnonzero(base)
+        stated = bool(getattr(anchor_choice, 'audience_group', None) or plan.audience_group)
+        if len(positions) == 0 and explicit and types and not stated:
+            # "a white shirt with a matching tie": the shirt is women's, ties are sold for men only;
+            # the tie asked for beats an audience that was only inferred from the anchor.
+            mask = self.hard_mask(plan, anchor_pid, page, anchor_choice, use_group=False)
+            base = mask & type_mask(self.index, types)
+            positions = np.flatnonzero(base)
         if len(positions) == 0:
             return [], explicit
         anchor_terms = [t for t in tokenize(anchor['name']) if len(t) > 2]

@@ -53,6 +53,8 @@ class Index:
                 lookup.setdefault(fold(value), []).append(code)
             self.lookup[field] = lookup
         self._value_masks = {}
+        self._none = np.zeros(n, dtype=bool)
+        self._none.flags.writeable = False
 
         self.positions = np.arange(n, dtype=np.int64)
         self.order = {}
@@ -93,8 +95,8 @@ class Index:
         if mask is None:
             codes = self.lookup[field].get(key[1], [])
             if not codes:
-                mask = np.zeros(self.n, dtype=bool)
-            elif len(codes) == 1:
+                return self._none          # unknown value: shared, never cached
+            if len(codes) == 1:
                 mask = self.codes[field] == codes[0]
             else:
                 mask = np.isin(self.codes[field], codes)

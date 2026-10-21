@@ -34,7 +34,7 @@ The score from the organizer's test runner is the only thing that matters. There
 
 ### 0.2 Repo status
 
-The fork started as the bare starter (`search.py`, `server.py`, `smoke_test.py`, `tests/test_search.py`). Everything in the module map (section 4) is built on branch `engine`. Keep `tests/test_search.py` green: it is the starter's own fixture test.
+The fork started as the bare starter (`search.py`, `server.py`, `smoke_test.py`, `tests/test_search.py`). Everything in the module map (section 4) is built on branch `engine`. Keep `tests/test_search.py` green: it is the starter's own fixture test (its placeholder assertion that recommendations are always `[]` was replaced by the contract's real recommendation rules).
 
 ---
 

@@ -1,7 +1,7 @@
 """Catalog search: the exact contract engine for empty queries, the semantic engine otherwise."""
 import json
+import logging
 import math
-import re
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, ValidationError
@@ -39,6 +39,13 @@ def normalize_arguments(arguments):
     filters = dict(arguments.get('filters', {}))
     if 'min_review_count' in filters:
         filters['min_review_count'] = int(filters['min_review_count'])
+    for bound in ('min_price', 'max_price'):
+        if bound in filters:
+            # A valid bound can be a JSON integer too large for a float: it means +inf.
+            try:
+                filters[bound] = float(filters[bound])
+            except OverflowError:
+                filters[bound] = math.inf
     return {
         'query': arguments.get('query', ''),
         'filters': filters,
@@ -55,50 +62,31 @@ def is_empty_query(args):
     return not args['query'].strip()
 
 
-class LexicalEngine:
-    """Starter-style AND token matching, used until the semantic engine is available."""
-
-    def __init__(self, products, index):
-        self.index = index
-        self.words = [set(re.findall(r'\w+', ' '.join(str(p.get(k) or '') for k in
-                      ('name', 'description', *STRING_FIELDS)).casefold())) for p in products]
-        self.names = [set(re.findall(r'\w+', p['name'].casefold())) for p in products]
-
-    def search(self, args):
-        query = re.findall(r'\w+', args['query'].casefold())
-        if not query:
-            return {'results': [], 'recommendations': []}
-        mask = self.index.mask(args['filters'])
-        scored = []
-        for pos in range(self.index.n):
-            if (mask is None or mask[pos]) and all(w in self.words[pos] for w in query):
-                scored.append((-(1 + sum(w in self.names[pos] for w in query)), pos))
-        if args['sort_by'] == 'relevance':
-            scored.sort()
-            positions = [pos for _, pos in scored]
-            if args['sort_order'] == 'asc':
-                positions.reverse()
-        else:
-            positions = self.index.sort_positions([pos for _, pos in scored],
-                                                  args['sort_by'], args['sort_order'])
-        page = positions[args['offset']:args['offset'] + args['limit']]
-        return {'results': [{'id': self.index.ids[p]} for p in page], 'recommendations': []}
-
-
 class Catalog:
-    def __init__(self, products, semantic=True):
+    def __init__(self, products, semantic=True, llm=None):
         self.products = sorted(products, key=lambda p: p['id'])
         for product in self.products:
             for field in UNUSED_FIELDS:
                 product.pop(field, None)
         self.index = Index(self.products)
         self.engine = None
+        self.semantic_status = 'off'
         if semantic:
-            self.engine = LexicalEngine(self.products, self.index)
+            # The exact path (validity + performance) must survive any semantic-engine failure.
+            try:
+                from engine.engine import SemanticEngine
+                if llm is None:
+                    from engine.llm import make_llm
+                    llm = make_llm()
+                self.engine = SemanticEngine(self.products, self.index, llm=llm)
+                self.semantic_status = 'ok'
+            except Exception:
+                logging.getLogger('polaris.search').exception('semantic engine failed to start; degraded mode')
+                self.semantic_status = 'degraded'
 
     @classmethod
-    def load(cls, path, semantic=True):
-        return cls(json.loads(Path(path).read_text(encoding='utf-8')), semantic=semantic)
+    def load(cls, path, semantic=True, llm=None):
+        return cls(json.loads(Path(path).read_text(encoding='utf-8')), semantic=semantic, llm=llm)
 
     def prepare(self, arguments):
         """Validate (ValueError on invalid input) and normalize tool arguments."""
@@ -113,6 +101,8 @@ class Catalog:
                 'recommendations': []}
 
     def semantic(self, args):
+        if self.engine is None:
+            return {'results': [], 'recommendations': []}
         return self.engine.search(args)
 
     def warm_up(self):
@@ -122,7 +112,10 @@ class Catalog:
                 self.search({'sort_by': sort_by, 'sort_order': order,
                              'filters': {'color': 'Black', 'max_price': 2000}})
         if self.engine is not None and hasattr(self.engine, 'warm_up'):
-            self.engine.warm_up()
+            try:
+                self.engine.warm_up()
+            except Exception:
+                logging.getLogger('polaris.search').exception('semantic warm-up failed')
 
     def search(self, arguments):
         args = self.prepare(arguments)

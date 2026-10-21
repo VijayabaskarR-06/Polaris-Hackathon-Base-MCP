@@ -38,7 +38,17 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(self.ids(query='COTTON top'), ['001','002','003'])
         self.assertEqual(self.ids(query='spaceship engine'), [])
         self.assertEqual(self.ids(query='   '), ['001','002','003','004'])
-        self.assertEqual(self.catalog.search({'query':'skirt','include_recommendations':True})['recommendations'], [])
+        # The starter's recommend() was a placeholder returning []; the contract only requires
+        # valid references: at most five, unique, not primary results, anchored on this page.
+        out = self.catalog.search({'query':'skirt','include_recommendations':True})
+        page = [r['id'] for r in out['results']]
+        recs = out['recommendations']
+        self.assertLessEqual(len(recs), 5)
+        self.assertEqual(len({r['id'] for r in recs}), len(recs))
+        for rec in recs:
+            self.assertNotIn(rec['id'], page)
+            self.assertIn(rec['for_product_id'], page)
+        self.assertEqual(self.catalog.search({'query':'skirt'})['recommendations'], [])
 
     def test_invalid_arguments(self):
         for args in [{'limit':0},{'limit':True},{'offset':-1},{'sort_by':'unknown'},

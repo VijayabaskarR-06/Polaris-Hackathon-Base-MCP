@@ -18,8 +18,9 @@ from starlette.routing import Route
 
 from search import Catalog, INPUT_SCHEMA, OUTPUT_SCHEMA, is_empty_query
 
-logging.basicConfig(level=os.getenv('LOG_LEVEL', 'INFO'),
-                    format='%(asctime)s %(levelname)s %(name)s %(message)s')
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s %(levelname)s %(name)s %(message)s')
+# Our own diagnostics at INFO; the SDK's per-request INFO lines would cost event-loop time.
+logging.getLogger('polaris').setLevel(os.getenv('LOG_LEVEL', 'INFO'))
 log = logging.getLogger('polaris.server')
 
 server = Server('polaris-product-search', version='1.0.0')
@@ -56,7 +57,12 @@ async def call_tool(name, arguments):
     return tool_result(await anyio.to_thread.run_sync(catalog.semantic, args))
 
 
+# The endpoint is public and unauthenticated by design, so DNS-rebinding protection
+# only adds failure modes: with it on, any Host header not listed exactly in
+# MCP_ALLOWED_HOSTS (the public IP, an EC2 DNS name) gets HTTP 421 and discovery
+# fails. It stays available as an opt-in.
 security = TransportSecuritySettings(
+    enable_dns_rebinding_protection=os.getenv('MCP_DNS_REBINDING_PROTECTION') == '1',
     allowed_hosts=[h.strip() for h in os.getenv('MCP_ALLOWED_HOSTS',
         'localhost:*,127.0.0.1:*,[::1]:*').split(',') if h.strip()],
     allowed_origins=[o.strip() for o in os.getenv('MCP_ALLOWED_ORIGINS', '').split(',') if o.strip()],
@@ -83,6 +89,16 @@ METHOD_NOT_ALLOWED = json.dumps({'jsonrpc': '2.0', 'id': 'server-error',
                                  'error': {'code': -32000, 'message': 'Method Not Allowed'}}).encode()
 
 
+def accept_json(scope):
+    """A POST must accept application/json for the SDK to answer; add it if a client omitted it."""
+    headers = [(k, v) for k, v in scope['headers'] if k != b'accept']
+    accept = b', '.join(v for k, v in scope['headers'] if k == b'accept')
+    if b'application/json' not in accept:
+        accept = b'application/json, text/event-stream' + (b', ' + accept if accept else b'')
+        scope = dict(scope, headers=headers + [(b'accept', accept)])
+    return scope
+
+
 class MCPApplication:
     async def __call__(self, scope, receive, send):
         # No standalone SSE stream is offered: the brief requires 405 for GET.
@@ -92,11 +108,13 @@ class MCPApplication:
                                     (b'content-length', str(len(METHOD_NOT_ALLOWED)).encode())]})
             await send({'type': 'http.response.body', 'body': METHOD_NOT_ALLOWED})
             return
+        if scope['method'] == 'POST':
+            scope = accept_json(scope)
         await sessions.handle_request(scope, receive, send)
 
 
 async def health(request):
-    return JSONResponse({'status': 'ok', 'products': len(catalog.products)})
+    return JSONResponse({'status': 'ok', 'products': len(catalog.products), 'semantic': catalog.semantic_status})
 
 
 app = Starlette(lifespan=lifespan, routes=[
@@ -115,6 +133,8 @@ def fastest(module, name):
 
 if __name__ == '__main__':
     # One process only: the semantic cache must be shared by every request.
+    # Keep-alive well above the MCP client's 5 s pool expiry: with equal timeouts a
+    # request sent on a connection the server is just closing fails the session.
     uvicorn.run(app, host=os.getenv('HOST', '0.0.0.0'), port=int(os.getenv('PORT', '8000')),
-                access_log=False, log_level='warning',
+                access_log=False, log_level='warning', timeout_keep_alive=75,
                 loop=fastest('uvloop', 'uvloop'), http=fastest('httptools', 'httptools'))

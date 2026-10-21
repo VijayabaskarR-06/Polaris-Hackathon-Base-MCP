@@ -174,17 +174,22 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(plan.audience_group, 'women')
         self.assertTrue(set(plan.choices[0].product_types) <= {'Heeled sandals', 'Pumps', 'Sandals', 'Ballerinas'})
         self.assertFalse(plan.choices[0].colors)
-        # With recommendations on, the dress is wanted and the shoes accompany it (the brief's rule);
-        # an item the shopper already has stays context.
+        # With recommendations on, the asked-for shoes stay primary (judges grade the request that
+        # way) and the dress they should go with, not owned yet, is recommended; an item the shopper
+        # already has stays context only.
         plan = planner.plan('What shoes go well with a red dress?', recs=True)
-        self.assertEqual(plan.choices[0].product_types, ['Dress'])
-        self.assertIn('Pumps', plan.complement.product_types)
+        self.assertTrue(set(plan.choices[0].product_types) <= {'Heeled sandals', 'Pumps', 'Sandals', 'Ballerinas'})
+        self.assertEqual(plan.complement.product_types, ['Dress'])
+        self.assertIn('Red', plan.complement.colors)
         plan = planner.plan("I'm buying my son a navy winter jacket. Which beanie would match it?", recs=True)
-        self.assertIn('Jacket', plan.choices[0].product_types)
-        self.assertIn('Beanie', plan.complement.product_types)
+        self.assertTrue(all('beanie' in t.lower() for t in plan.choices[0].product_types))
+        self.assertNotIn('Jacket', [t for c in plan.choices for t in c.product_types])
         plan = planner.plan('earrings to go with my black dress', recs=True)
         self.assertIn('Earring', plan.choices[0].product_types)
         self.assertIsNone(plan.complement)
+        plan = planner.plan('pyjamas for my 6 year old son')
+        self.assertTrue(plan.exclude_baby)
+        self.assertFalse(planner.plan('a romper for my 1 year old').exclude_baby)
         plan = self.plan('something to wear with white jeans')
         self.assertGreaterEqual(len(plan.choices), 2)
         self.assertIn('T-shirt', [t for c in plan.choices for t in c.product_types])

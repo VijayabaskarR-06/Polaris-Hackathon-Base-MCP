@@ -27,9 +27,21 @@ SET_PARTS = {
 }
 # Kinds that stand in for each other: owning a coat, a jacket is no accompaniment.
 SAME_KIND = {'Coat': ('Jacket',), 'Jacket': ('Coat',), 'Sneakers': ('Other shoe',), 'Other shoe': ('Sneakers',)}
+# Outfit slots: an owned dress already covers the top and the bottom, owned trousers the bottom.
+SLOTS = {
+    'bottom': ('Trousers', 'Skirt', 'Shorts', 'Leggings/Tights', 'Outdoor trousers'),
+    'top': ('T-shirt', 'Top', 'Blouse', 'Shirt', 'Vest top', 'Polo shirt', 'Sweater', 'Hoodie'),
+    'onepiece': ('Dress', 'Jumpsuit/Playsuit', 'Dungarees'),
+    'outer': ('Jacket', 'Coat', 'Blazer', 'Outdoor Waistcoat', 'Cardigan'),
+    'shoes': ('Sneakers', 'Boots', 'Sandals', 'Heeled sandals', 'Pumps', 'Heels', 'Wedge', 'Ballerinas',
+              'Flat shoe', 'Flat shoes', 'Other shoe', 'Flip flop'),
+}
+SLOT_OF = {t: slot for slot, types in SLOTS.items() for t in types}
+COVERS = {'onepiece': {'onepiece', 'top', 'bottom'}, 'top': {'top', 'onepiece'},
+          'bottom': {'bottom', 'onepiece'}, 'outer': {'outer'}, 'shoes': {'shoes'}}
 # Bags for chores, not for an outfit ("cosmetic bag", "pencil case").
 UTILITY_WORDS = ['cosmetic', 'case', 'pencil', 'gymbag', 'packable', 'washbag', 'toiletry', 'laptop', 'lunch',
-                 'pouch', 'waistbag', 'bumbag', 'backpack']
+                 'pouch', 'waistbag', 'bumbag', 'backpack', 'gym']
 # Name words too common to mark a matching line ("basic", "slim").
 NAME_NOISE = {'basic', 'slim', 'regular', 'loose', 'relaxed', 'soft', 'long', 'short', 'pack', 'the', 'and', 'with'}
 
@@ -91,8 +103,17 @@ class Recommender:
         if comp is not None and comp.keywords:
             return [], list(comp.keywords), True
         types = self.vocab.complement_map.get(ref_type) or FALLBACK_COMPLEMENTS
-        owned = set(getattr(plan, 'context_types', []) or [])
+        context = [t for t in (getattr(plan, 'context_types', []) or []) if t != ref_type]
+        owned = set(context)
         owned |= {t for o in owned for t in SAME_KIND.get(o, ())}
+        if context:
+            # "I bought a black dress, find shoes to go with it": the shoes and the dress make the
+            # outfit, so the rest completes both (a bag, earrings), never another dress or a skirt.
+            covered = set().union(*(COVERS.get(SLOT_OF.get(t), set()) for t in context + [ref_type]))
+            around = self.vocab.complement_map.get(context[0]) or []
+            both = [t for t in types if t in around]
+            types = both + [t for t in around if t not in both] + [t for t in types if t not in around]
+            types = [t for t in types if SLOT_OF.get(t) not in covered]
         # Implicit complements never repeat the anchor's kind or what the shopper already has, and
         # suit the wearer (no dress for a boy's sun hat).
         other = {'men': 'women', 'boys': 'women', 'women': 'men', 'girls': 'men'}.get(group)

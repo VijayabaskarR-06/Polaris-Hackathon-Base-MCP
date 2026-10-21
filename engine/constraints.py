@@ -69,6 +69,9 @@ def hard_mask(index, vocab, filters, plan, choice, support=None):
     group = getattr(choice, 'audience_group', None) or plan.audience_group
     if group:
         mask = _apply(mask, vocab.group_masks[group], info, 'audience_group', ('audience', 'section'), filters)
+    if getattr(plan, 'exclude_baby', False) and group != 'baby':
+        # "pyjamas for my 6 year old": baby sizes 50-98 do not fit.
+        mask = _apply(mask, ~vocab.group_masks['baby'], info, 'exclude_baby', ('audience', 'section'), filters)
     required = getattr(choice, 'required_sections', None)
     if required and 'section' not in filters:
         # "plus size", "maternity": a stated requirement, enforced when the catalog can satisfy it.

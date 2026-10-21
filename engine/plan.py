@@ -34,6 +34,7 @@ class Plan:
     audience_group: str = None                            # HARD when set
     choices: list = field(default_factory=list)           # 1..4 Choice
     complement: Choice = None                             # accompanying item, recommendations only
+    exclude_baby: bool = False                            # HARD: a child too old for baby sizes
     source: str = 'rules'                                 # 'llm' | 'rules' | 'merged'
     notes: list = field(default_factory=list)             # diagnostics only
 

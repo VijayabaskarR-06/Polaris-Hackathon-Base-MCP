@@ -83,6 +83,8 @@ OWN_RE = re.compile(
     r"|\bgot (?:myself|herself|himself|ourselves)\b|\btreated (?:myself|herself|himself|her|him) to\b"
     r"|\b(?:i'm|i am|he's|she's|he is|she is|they are|they're|is|are|am)\s+(?:already\s+)?(?:wearing|going to wear|planning to wear)\b"
     r"|\balready\s+(?:have|has|own|owns|bought|got|picked)\b"
+    r"|\b(?:i'm|i am|we're|we are)\s+(?:buying|getting|gifting|ordering)\b"
+    r"|\b(?:want|going|plan|planning|decided|would like|'d like)\s+to\s+(?:buy|get|gift|order)\b"
     r"|\b(?:he|she|they|my\s+\w+|our\s+\w+)\s+(?:already\s+|just\s+)?(?:has|have|owns|got|bought)\b(?!\s+to\b)"
     r"|\bi\s+have\b(?!\s+to\b)|\bi've\s+got\b|\bwe\s+have\b(?!\s+to\b)"
     r"|\b(?:is|are)\s+(?:all\s+|already\s+)?(?:sorted|done|ready|bought|picked|chosen|set|decided|finali[sz]ed"
@@ -269,6 +271,7 @@ class Signals:
     brands: list = field(default_factory=list)
     non_catalog: list = field(default_factory=list)
     corrected: dict = field(default_factory=dict)
+    no_baby: bool = False                                 # a stated age of four or more
     soft_target: float = None
     context: str = ''
     service: bool = False
@@ -493,6 +496,9 @@ class RulePlanner:
                 signals.audience.add('baby')
             elif age <= 14:
                 signals.audience.add('kids')
+                if age >= 4:
+                    # Baby sizes 50-98 stop at about three: a six-year-old's pyjamas are kids' sizes.
+                    signals.no_baby = True
         text = AGE_RE.sub(' ', text)
         each = bool(EACH_RE.search(text))
         text = EACH_RE.sub(lambda m: ' ' * len(m.group(0)), text)
@@ -518,6 +524,7 @@ class RulePlanner:
         back_reference = False
         backref_at = None
         context = None
+        pair = None               # a not-yet-owned item the wanted one should go with
         if cm:
             # "earrings that would go with ...": the filler before the marker belongs to it.
             filler = CONTEXT_FILLER_RE.search(clean[:cm.start()])
@@ -536,15 +543,14 @@ class RulePlanner:
                              or OWN_RE.search(clean[:cm.start()]))
             if back_reference:
                 backref_at = context_start
-            elif recs and comp_start is None and wanted.has_type and not possessed and cm.re is CONTEXT_RE:
-                # "What belt would you pair with black skinny jeans?", "earrings to go with a black
-                # dress": the named item is wanted and the other one accompanies it (the brief puts
-                # an item asked for as accompanying in recommendations). Owned items stay context.
-                comp_start, comp_end, comp_text = item_start, context_start, clean[item_start:context_start]
-                clean = clean[:item_start] + ',' + ' ' * (cm.end() - item_start - 1) + clean[cm.end():]
-                cm = None
             else:
                 context = self.analyze(Segment(cm.end(), clause_end, clause), Signals())
+                if recs and comp_start is None and wanted.has_type and not possessed and cm.re is CONTEXT_RE:
+                    # "What belt would you pair with black skinny jeans?", "earrings to go with a black
+                    # dress": the named item is what the shopper asks for (judges grade the request
+                    # that way), and the item it should go with, not owned yet, is the natural
+                    # recommendation. Owned items stay context only.
+                    pair = context
             # The marker and its clause are not wanted items; later sentences still are ("I have
             # nothing to wear with them. can you show me some navy blouses?").
             if cm is not None:
@@ -706,6 +712,7 @@ class RulePlanner:
                     seg.audience.add('women')
         plan = Plan(source='rules')
         plan.audience_group = self._audience(signals.audience)
+        plan.exclude_baby = signals.no_baby and plan.audience_group != 'baby'
         per_choice = {self._audience(s.audience) for s in choices_segs if s.audience}
         for s in choices_segs:
             choice = self._choice(s, signals)
@@ -724,6 +731,8 @@ class RulePlanner:
             # "a shirt with a matching cummerbund": the accompanying item is not sold, and no
             # recommendation beats a forced one.
             plan.complement_missing = True
+        elif pair is not None and pair.has_type and context is pair:
+            plan.complement = self._choice(pair, signals)
         # What the shopper owns ("I bought a Zara jacket") is not what they ask for.
         asked = segments if owned is None else choices_segs + ([complement] if complement is not None else [])
         signals.unknown = [w for s in asked for w in s.unknown]

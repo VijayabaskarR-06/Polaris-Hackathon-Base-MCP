@@ -55,9 +55,13 @@ CONTEXT_RE = re.compile(
     r'|(?:to\s+)?pairs?\s+(?:it\s+|them\s+)?(?:well\s+|nicely\s+)?with'
     r'|(?:to\s+)?(?:style|team|combine|coordinate)\s+(?:it\s+|them\s+)?with'
     r'|(?:to|that|which|would|will|can)\s+match(?:es)?\b|(?:to|that|which|would|will)\s+complements?\b'
+    r'|look(?:s)?\s+(?:good|great|nice|best|lovely|smart|cute|amazing|perfect|better)\s+with'
+    r'|(?:would|will|might|could|to)\s+suit\b'
     r'|(?:to\s+)?(?:complete|finish(?:\s+off)?|round\s+(?:off|out))\s+(?:the|my|this|her|his|your)\s+(?:look|outfit)'
     r'|matching (?=my |our |her |his )|for (?=my |our )(?:\w+ ){0,2}'
     r'(?:dress|outfit|suit|saree|sari|lehenga|gown|jeans|jacket))')
+GLOBAL_RE = re.compile(r'\b(?:everything|all|both|whole|entire|every piece|every item|all of (?:it|them))\b')
+POSSESSIVE_RE = re.compile(r"\s*(?:my|our|his|her|their|your|ur|mine|meri|mere|mera)\b")
 CONTEXT_FILLER_RE = re.compile(r'(?:\b(?:to|that|which|what|would|will|can|could|might|else|really|i|you|we)\s+)+$')
 # "a black dress, and suggest a bag": what follows the verb accompanies the item named before it.
 SUGGEST_RE = re.compile(r'\b(?:suggest|recommend)(?:s|ed|ing)?\b')
@@ -69,7 +73,7 @@ GARMENT_CATEGORIES = {'Garment Full body', 'Garment Upper body', 'Garment Lower 
 WITH_FEATURE_TYPES = {'Belt'}
 SPLIT_RE = re.compile(r'\band\b|&|\bplus\b(?![\s-]*sized?\b)|\bas well as\b|,|/|;|\+|\bor\b|\balso\b|\baur\b'
                       r'|\bya\b|\bthen\b|\bn\b|\balong\s*with\b|\btogether\s+with\b|\balongside\b'
-                      r'|\bin addition to\b|(?<=\w)[.!?]+(?=\s|$)')
+                      r'|\bin addition to\b|(?<=\w)[.!?]+(?=\s|$)|\s[-\u2013]\s')
 # "I bought a navy blazer, find me a tie to go with it": the bought item is context, the tie is
 # what they want. Possession attached to the first item, followed by a request for another one.
 OWN_RE = re.compile(
@@ -86,7 +90,8 @@ OWN_RE = re.compile(
 REQUEST_RE = re.compile(
     r"\b(?:need|needs|want|wants|looking for|look for|find|suggest|recommend|show|get me|get her|get him|help me"
     r"|any|do you have|got any|which|what|could you|can you|would like|i'd like|love|dikhao|dikhaiye|chahiye"
-    r"|chaiye|batao)\b")
+    r"|chaiye|batao|i'm after|i am after|shopping for|searching for|in the market for|kaunsa|kaunsi|konsa|konsi"
+    r"|kaun sa|kaun si)\b")
 BACK_REFERENCE_WORDS = {'it', 'them', 'this', 'that', 'these', 'those', 'one', 'ones', 'too', 'pls', 'please',
                         'plz', 'well', 'also', 'nicely', 'perfectly', 'great', 'thanks', 'thank', 'you', 'if',
                         'possible', 'poss', 'have', 'any', 'em'}
@@ -114,8 +119,9 @@ STYLE_TYPE_PHRASES = {
 NUMERIC_NOISE_RE = re.compile(r'\b\d+(?:\.\d+)?\s*(?:%|percent|pcs?|pieces?|pack|pk|years?|yrs?|y/o|months?|'
                               r'cm|mm|inch(?:es)?|in\b|size|sizes|xl|xxl|kg|ml|l\b)')
 MIN_BUDGET = 100
-AGE_RE = re.compile(r'\b(\d{1,2})\s*(?:-|\s)?\s*(years?|yrs?|y/o|yo|months?|mths?)(?:\s*-?\s*old)?\b'
-                    r'|\baged?\s*(\d{1,2})\b')
+AGE_RE = re.compile(r'\b(\d{1,2})\s*(?:-|\s)?\s*(years?|yrs?|y/o|yo|months?|mths?|ans|anos|jahre|saal)'
+                    r'(?:\s*-?\s*old)?\b|\baged?\s*(\d{1,2})\b|\bturn(?:s|ing)?\s+(\d{1,2})\b'
+                    r'|\b(\d{1,2})(?:st|nd|rd|th)\s+birthday\b')
 # Words too generic to tell a product type apart ("football shirt": football matters, shirt doesn't).
 # Sections that are a shopper requirement when named ("plus size", "maternity"), not a mood.
 REQUIRED_SECTIONS = {'H&M+', 'Mama'}
@@ -480,7 +486,8 @@ class RulePlanner:
         signals.service = bool(words & SERVICE_VERBS) or bool(FORECAST_RE.search(text))
         signals.question = bool(QUESTION_RE.match(text))
         for age_match in AGE_RE.finditer(text):
-            age = int(age_match.group(1) or age_match.group(3))
+            age = int(next(g for g in (age_match.group(1), age_match.group(3), age_match.group(4),
+                                       age_match.group(5)) if g))
             unit = age_match.group(2) or 'year'
             if unit.startswith(('month', 'mth')) or age <= 2:
                 signals.audience.add('baby')
@@ -497,6 +504,7 @@ class RulePlanner:
         clean = _mask_spans(text, budget_spans)
 
         main_end, comp_start, comp_end = len(clean), None, len(clean)
+        comp_text = None          # set when the accompaniment comes before the main item
         matching = False
         m = COMPLEMENT_RE.search(clean)
         wm = WITH_TO_MATCH_RE.search(clean)
@@ -522,18 +530,36 @@ class RulePlanner:
             words = [w for w in raw_tokens(clause) if stem(w) not in self.vocab.stopwords]
             back_reference = all(w in BACK_REFERENCE_WORDS for w in words)
             matching = matching or bool(MATCH_WORD_RE.search(cm.group(0)))
+            item_start = max([0] + [x.end() for x in SPLIT_RE.finditer(clean[:context_start])])
+            wanted = self.analyze(Segment(0, 0, clean[item_start:context_start]), Signals())
+            possessed = bool(POSSESSIVE_RE.match(clause) or OWN_RE.search(clause)
+                             or OWN_RE.search(clean[:cm.start()]))
             if back_reference:
                 backref_at = context_start
+            elif recs and comp_start is None and wanted.has_type and not possessed and cm.re is CONTEXT_RE:
+                # "What belt would you pair with black skinny jeans?", "earrings to go with a black
+                # dress": the named item is wanted and the other one accompanies it (the brief puts
+                # an item asked for as accompanying in recommendations). Owned items stay context.
+                comp_start, comp_end, comp_text = item_start, context_start, clean[item_start:context_start]
+                clean = clean[:item_start] + ',' + ' ' * (cm.end() - item_start - 1) + clean[cm.end():]
+                cm = None
             else:
                 context = self.analyze(Segment(cm.end(), clause_end, clause), Signals())
             # The marker and its clause are not wanted items; later sentences still are ("I have
             # nothing to wear with them. can you show me some navy blouses?").
-            clean = clean[:context_start] + ',' + ' ' * (clause_end - context_start - 1) + clean[clause_end:]
+            if cm is not None:
+                clean = clean[:context_start] + ',' + ' ' * (clause_end - context_start - 1) + clean[clause_end:]
         own = OWN_RE.search(clean[:main_end])
         if comp_start is None:
             for sm in SUGGEST_RE.finditer(clean[:main_end]):
                 if own is not None and own.start() < sm.start():
-                    break          # "I bought a dress, suggest heels": the heels are what they want
+                    # "I bought a dress, suggest heels": the heels are what they want; but in "already
+                    # has trainers. find him a tee and recommend shorts", the shorts accompany the tee.
+                    request = REQUEST_RE.search(clean, own.end(), sm.start())
+                    between = self.analyze(Segment(0, 0, clean[request.end():sm.start()]), Signals()) \
+                        if request is not None else None
+                    if between is None or not between.has_type:
+                        break
                 before = self.analyze(Segment(0, sm.start(), clean[:sm.start()]), Signals())
                 after = self.analyze(Segment(0, 0, clean[sm.end():main_end]), Signals())
                 if before.has_type and after.has_type:
@@ -560,16 +586,17 @@ class RulePlanner:
             segments.append(Segment(pos, sm.start(), main[pos:sm.start()]))
             pos = sm.end()
         segments.append(Segment(pos, main_end, main[pos:main_end]))
-        segments = [self.analyze(s, signals) for s in segments if s.text.strip()]
+        segments = [self.analyze(s, signals) for s in segments if s.text.strip(' ,.;:!?-')]
         complement = None
         if comp_start is not None:
-            complement = self.analyze(Segment(comp_start, comp_end, clean[comp_start:comp_end]), signals)
+            text_of = comp_text if comp_text is not None else clean[comp_start:comp_end]
+            complement = self.analyze(Segment(comp_start, comp_end, text_of), signals)
 
         # Assign budgets to the segment that contains them (complement gets its own).
         for b in budgets:
             if b.soft_target is not None:
                 continue
-            if complement is not None and b.start >= comp_start - 1:
+            if complement is not None and b.start >= comp_start - 1 and (comp_text is None or b.start < comp_end):
                 complement.budgets.append(b)
                 continue
             before = [s for s in segments if s.start <= b.start]
@@ -589,7 +616,12 @@ class RulePlanner:
             for seg in owned:
                 choices_segs.remove(seg)
                 main_budgets = [b for b in main_budgets if all(b is not x for x in seg.budgets)]
-            context, back_reference = owned[0], False
+            context = owned[0]
+        first_typed = next((i for i, x in enumerate(segments) if x.has_type), len(segments))
+        # "everything has to be black. I need a blazer, trousers and pumps": a leading requirement
+        # said of everything applies to every item.
+        trailing += [x for x in segments[:first_typed] if (x.colors or x.exclude_colors)
+                     and GLOBAL_RE.search(x.text)]
         if len(choices_segs) > 1:
             for mod in trailing:
                 for target in choices_segs:
@@ -615,16 +647,18 @@ class RulePlanner:
                     run.insert(0, prev)
                 if run[0] is before[0]:
                     run = [before[-1]]     # "jeans and a tee and a belt to go with them": just the belt
-                complement = run[0]
+                    if owned:
+                        run = []           # "I have a dress, need heels and a bag to go with it": all wanted
+                complement = run[0] if run else None
                 for extra in run[1:]:
                     self._absorb(complement, extra)
                 for seg in run:
                     choices_segs.remove(seg)
-                comp_start = complement.start
+                comp_start = complement.start if complement is not None else comp_start
                 # "..., and cufflinks to match - max 1000 for the cufflinks": a later mention of the
                 # accompaniment refines it rather than naming a new choice.
-                for later in [x for x in choices_segs if backref_at is not None and x.start > backref_at
-                              and x.types and set(x.types) <= set(complement.types)]:
+                for later in [x for x in choices_segs if complement is not None and backref_at is not None
+                              and x.start > backref_at and x.types and set(x.types) <= set(complement.types)]:
                     self._absorb(complement, later)
                     choices_segs.remove(later)
             else:
@@ -634,7 +668,10 @@ class RulePlanner:
                     missing_complement = True
         if len(choices_segs) > 1 and (each or len(main_budgets) == 1):
             for s in choices_segs:
-                s.budgets = list(main_budgets)
+                # "a blazer, trousers and pumps, plus a belt under 1000": one stated budget is shared
+                # unless no product of an item's kind could meet it (that budget was the belt's).
+                if each or s.budgets or not self._priced_out(s, main_budgets):
+                    s.budgets = list(main_budgets)
         if each:
             # "a white shirt and a tie to go with it, dono 2000 ke andar": the budget is per item,
             # wherever in the request it was said.
@@ -830,11 +867,20 @@ class RulePlanner:
                 pending.append(s)
         return out
 
+    def _priced_out(self, seg, budgets):
+        """True when no product of the segment's kinds fits the budgets (by catalog price bands)."""
+        bands = [self.vocab.type_band[t] for t in (seg.types or seg.group_types) if t in self.vocab.type_band]
+        if not bands:
+            return False
+        cheapest, dearest = min(b[0] for b in bands), max(b[2] for b in bands)
+        return any((b.max_price is not None and cheapest > b.max_price)
+                   or (b.min_price is not None and dearest < b.min_price) for b in budgets)
+
     @staticmethod
     def _owned(segs, own, clean, back_reference, backref_at=None):
         """Choices the shopper already has ("I bought a navy blazer", "my son has swim shorts",
-        "the dress is all sorted. what headband would go with it?") when they ask for something
-        else to go with them; [] when every choice is wanted."""
+        "the dress is all sorted") when they ask for something else to go with them; [] when
+        every choice is wanted ("I'm buying a jacket. Which beanie would match it?")."""
         if len(segs) < 2:
             return []
         if own is not None:
@@ -842,27 +888,18 @@ class RulePlanner:
             if owned is not None:
                 # Everything named from the owned item up to the request is what they have: "I have
                 # black jeans and white sneakers, looking for a top to go with them".
-                if back_reference and backref_at is not None:
-                    wanted = [s for s in segs if s.start < backref_at]
-                    if wanted and wanted[-1] is not owned:
-                        return [s for s in segs if owned.start <= s.start and s.end <= wanted[-1].start]
                 request = REQUEST_RE.search(clean, owned.end)
+                have = []
                 if request is not None:
                     have = [s for s in segs if owned.start <= s.start and s.end <= request.start()]
-                    if len(have) < len(segs):
-                        return have
-                if REQUEST_RE.search(clean[:owned.start]):
-                    return [owned]
-        if back_reference and backref_at is not None:
-            # A later sentence asks for the item that goes "with it": earlier sentences describe
-            # what the shopper has.
-            wanted = [s for s in segs if s.start < backref_at]
-            if len(wanted) >= 2:
-                target = wanted[-1]
-                start = max(clean.rfind(p, 0, target.start) for p in '.!?')
-                earlier = [s for s in segs if s.end <= start]
-                if start >= 0 and earlier and REQUEST_RE.search(clean[start:backref_at]):
-                    return earlier
+                elif back_reference and backref_at is not None:
+                    wanted = [s for s in segs if s.start < backref_at]
+                    if wanted and wanted[-1] is not owned:
+                        have = [s for s in segs if owned.start <= s.start and s.end <= wanted[-1].start]
+                elif REQUEST_RE.search(clean[:owned.start]):
+                    have = [owned]
+                if have and len(have) < len(segs):
+                    return have
         return []
 
     @staticmethod
@@ -940,11 +977,17 @@ class RulePlanner:
         for family in seg.exclude_colors:
             exclude_colors += [c for c in family if c not in exclude_colors]
         min_price = max_price = None
-        for b in seg.budgets:
-            if b.min_price is not None:
-                min_price = b.min_price if min_price is None else max(min_price, b.min_price)
-            if b.max_price is not None:
-                max_price = b.max_price if max_price is None else min(max_price, b.max_price)
+        # The item's own budgets first: contradicting ones said of it make it impossible ("at least
+        # 2500 but no more than 1200"); a budget absorbed from other words must not contradict them.
+        own = [b for b in seg.budgets if seg.start <= b.start < seg.end]
+        for b in own + [b for b in seg.budgets if all(b is not x for x in own)]:
+            lo = b.min_price if min_price is None or b.min_price is None else max(min_price, b.min_price)
+            hi = b.max_price if max_price is None or b.max_price is None else min(max_price, b.max_price)
+            lo = min_price if lo is None else lo
+            hi = max_price if hi is None else hi
+            if lo is not None and hi is not None and lo > hi and all(b is not x for x in own):
+                continue
+            min_price, max_price = lo, hi
         label = ' '.join(seg.text.split()).strip(' ,.;:!?') or ' '.join(seg.type_words)
         choice = Choice(
             label=label[:120] or 'item', product_types=types, keywords=keywords, colors=colors,

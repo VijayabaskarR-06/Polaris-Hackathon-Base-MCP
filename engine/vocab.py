@@ -74,6 +74,8 @@ DEVANAGARI_WORDS = {
     'रुपये': 'inr', 'रुपए': 'inr', 'रु': 'inr', 'शादी': 'wedding', 'पार्टी': 'party', 'सर्दी': 'winter',
     'गर्मी': 'summer', 'बारिश': 'rain', 'ऑफिस': 'office',
 }
+FRENCH_MARKERS = {'je', 'cherche', 'veux', 'voudrais', 'une', 'des', 'pour', 'avec', 'ma', 'mon', 'mes', 'fille',
+                  'femme', 'homme', 'soiree', 'tres', 'et', 'blanche', 'noire', 'rose', 'jolie'}
 DEVANAGARI_DIGITS = str.maketrans('०१२३४५६७८९', '0123456789')
 
 # Inflected forms ("rojos", "noires", "rote") are looked up by trying these endings.
@@ -380,6 +382,12 @@ class Vocab:
         """
         if self.foreign_re is None:
             return text
+        if len(set(re.findall(r'\b\w+\b', text)) & FRENCH_MARKERS) >= 2:
+            # In French a "robe" is a dress (in English, a bathrobe), "rose" is pink, and "son"/"sa"
+            # mean his/her ("pour son anniversaire"), not a son.
+            text = re.sub(r'\brobes?\b', 'dress', text)
+            text = re.sub(r'\broses?\b', 'pink', text)
+            text = re.sub(r'\b(?:son|sa)\b', ' ', text)
         text = self.foreign_re.sub(lambda m: self.foreign[' '.join(re.split(r'[\s\-]+', m.group(0)))], text)
         return WORD_RE.sub(self._inflected, text)
 

@@ -169,10 +169,22 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(len(self.plan('I have a wedding to attend, need a dress and shoes').choices), 2)
 
     def test_context_sets_wearer_and_pairings(self):
-        plan = self.plan('What shoes go well with a red dress?')
+        planner = RulePlanner(self.vocab)
+        plan = planner.plan('What shoes go well with a red dress?', recs=False)
         self.assertEqual(plan.audience_group, 'women')
         self.assertTrue(set(plan.choices[0].product_types) <= {'Heeled sandals', 'Pumps', 'Sandals', 'Ballerinas'})
         self.assertFalse(plan.choices[0].colors)
+        # With recommendations on, the dress is wanted and the shoes accompany it (the brief's rule);
+        # an item the shopper already has stays context.
+        plan = planner.plan('What shoes go well with a red dress?', recs=True)
+        self.assertEqual(plan.choices[0].product_types, ['Dress'])
+        self.assertIn('Pumps', plan.complement.product_types)
+        plan = planner.plan("I'm buying my son a navy winter jacket. Which beanie would match it?", recs=True)
+        self.assertIn('Jacket', plan.choices[0].product_types)
+        self.assertIn('Beanie', plan.complement.product_types)
+        plan = planner.plan('earrings to go with my black dress', recs=True)
+        self.assertIn('Earring', plan.choices[0].product_types)
+        self.assertIsNone(plan.complement)
         plan = self.plan('something to wear with white jeans')
         self.assertGreaterEqual(len(plan.choices), 2)
         self.assertIn('T-shirt', [t for c in plan.choices for t in c.product_types])

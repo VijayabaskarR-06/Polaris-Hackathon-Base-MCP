@@ -2659,3 +2659,12 @@ TYPE_WORDS.update({'neckless': TYPE_WORDS['necklace'], 'necklase': TYPE_WORDS['n
                    'chino shorts': (['Shorts'], ['chino', 'shorts'])})
 # Phrases whose words would otherwise name a product ("stocking up for winter" is not stockings).
 STOP_PHRASES = {'stocking up', 'stock up', 'stocking-up', 'stocked up'}
+
+# Common shopping words of Spanish, French, German and Portuguese queries that were missing.
+FOREIGN_WORDS.update({'botines': 'ankle boots', 'azul marino': 'navy', 'esposo': 'husband', 'gorro': 'beanie',
+                      'gafas de sol': 'sunglasses', 'chemise': 'shirt', 'bonnet': 'beanie', 'baskets': 'sneakers',
+                      'ballerines': 'ballerinas', 'serre tete': 'headband', 'a rayures': 'striped',
+                      'rayures': 'stripes', 'muetze': 'beanie', 'tochter': 'daughter', 'mann': 'husband',
+                      'frau': 'wife', 'abotoaduras': 'cufflinks', 'azul claro': 'light blue',
+                      'azul clarinho': 'light blue', 'cada': 'each', 'fils': 'son', 'mochila': 'backpack'})
+AUDIENCE_WORDS.update({'goddaughter': 'girls', 'godson': 'boys', 'grandkid': 'kids'})

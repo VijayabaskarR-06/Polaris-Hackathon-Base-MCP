@@ -14,6 +14,12 @@ Every table is a plain literal. Conventions:
   ("imitation leather", not "faux leather"; "trainers" as well as "sneakers").
 * Verified against data/products.json (see tests/test_lexicon.py).
 
+The matcher (engine/vocab.py) stems every key and query token and takes the
+longest phrase first, so a multi-word key shields its words ("baby blue" is a
+colour, not a baby; "dog food" is not sold although "dog" is a type). A key
+that appears in two tables gives one span both meanings ("baby clothes" is an
+audience and a garment group). OCCASIONS values are shared dicts: read only.
+
 Catalog quirks this encodes: British English (trainers, jumper, trousers,
 dressing gown); jeans are type Trousers described as "jeans"; there is no navy
 or brown colour (Dark Blue, Yellowish Brown); maternity is section "Mama" and
@@ -593,7 +599,6 @@ TYPE_WORDS = {
     'stilettos': (['Pumps', 'Heeled sandals', 'Heels'], ['heel', 'pointed toes']),
     'court shoes': (['Pumps'], ['court shoes', 'heel']),
     'court shoe': (['Pumps'], ['court shoes', 'heel']),
-    'block heels': (['Heeled sandals', 'Pumps', 'Boots', 'Heels'], ['block heel']),
     'kitten heel': (['Pumps', 'Heeled sandals'], ['kitten heel']),
     'kitten heels': (['Pumps', 'Heeled sandals'], ['kitten heel']),
     'slingback': (['Pumps', 'Heeled sandals'], ['slingback']),
@@ -778,6 +783,7 @@ TYPE_WORDS = {
     'aviator sunglasses': (['Sunglasses'], ['sunglasses', 'aviator']),
     'glasses': (['Eyeglasses', 'Other accessories', 'Sunglasses'], ['glasses', 'clear lenses']),
     'spectacles': (['Eyeglasses', 'Other accessories'], ['glasses', 'clear lenses']),
+    'reading glasses': (['Eyeglasses', 'Other accessories'], ['glasses', 'clear lenses']),
     'specs': (['Eyeglasses', 'Other accessories'], ['glasses', 'clear lenses']),
     'goggles': (['Other accessories'], ['swimming goggles', 'underwater glasses']),
     'swimming goggles': (['Other accessories'], ['swimming goggles', 'underwater glasses']),
@@ -945,6 +951,10 @@ TYPE_GROUP_WORDS = {
     'hair accessories': ['Hair/alice band', 'Hair clip', 'Hair string', 'Hair ties', 'Hairband',
                          'Alice band', 'Headband'],
     'eyewear': ['Sunglasses', 'Eyeglasses'],
+    'baby clothes': ['Bodysuit', 'Garment Set', 'Pyjama jumpsuit/playsuit', 'Jumpsuit/Playsuit', 'Dress',
+                     'Trousers', 'Cardigan', 'Sweater'],
+    'babywear': ['Bodysuit', 'Garment Set', 'Pyjama jumpsuit/playsuit', 'Jumpsuit/Playsuit', 'Dress',
+                 'Trousers', 'Cardigan', 'Sweater'],
     'legwear': ['Underwear Tights', 'Socks', 'Leggings/Tights', 'Leg warmers'],
     'garment care': ['Side table', 'Stain remover spray', 'Washing bag', 'Sewing kit', 'Zipper head',
                      'Wood balls', 'Clothing mist'],
@@ -1199,6 +1209,7 @@ AUDIENCE_WORDS = {
     'young boy': 'boys', 'schoolboy': 'boys', 'stepson': 'boys',
     'baby': 'baby', 'babies': 'baby', 'newborn': 'baby', 'newborns': 'baby', 'new born': 'baby',
     'infant': 'baby', 'infants': 'baby', 'baby girl': 'baby', 'baby boy': 'baby', 'months old': 'baby',
+    'baby clothes': 'baby', 'babywear': 'baby',
     'month old': 'baby',
 }
 
@@ -1673,6 +1684,7 @@ STYLE_WORDS = {
     'chunky sole': ['chunky sole', 'chunky'],
     'platform': ['platform'],
     'block heel': ['block heel'],
+    'block heels': ['block heel'],
     'pointed': ['pointed toes'],
     'pointy': ['pointed toes'],
     'pointed toe': ['pointed toes'],
@@ -1700,6 +1712,7 @@ STYLE_WORDS = {
     'minimalist': ['basic', 'classic'],
     'minimal': ['basic', 'classic'],
     'utility': ['utility', 'cargo'],
+    'funky': ['printed', 'patterned'],
     'western': ['western'],
     'nautical': ['striped', 'stripes'],
     'lightweight': ['lightweight', 'airy'],
@@ -2217,6 +2230,25 @@ STOPWORDS = {
     'online', 'store', 'catalog', 'catalogue', 'brand', 'brands', 'size', 'sizes', 'sized',
     'colour', 'color', 'colours', 'colors', 'coloured', 'colored', 'tone',
     'price', 'priced', 'cost', 'costs', 'rupees', 'rs', 'inr', 'rupee',
+    # common words absent from the catalog: as stopwords they are never spell-corrected into
+    # product words ("bring" -> ring, "chose" -> hose, "proper" -> romper) nor taken as an
+    # unknown head noun
+    'ago', 'ahead', 'already', 'although', 'among', 'anyway', 'anywhere', 'appropriate', 'ask', 'asking',
+    'attend', 'attending', 'believe', 'bought', 'bring', 'brought', 'came', 'cannot', 'cause', 'certain',
+    'chose', 'choose', 'coming', 'consider', 'course', 'definitely', 'else', 'enough', 'especially',
+    'exactly', 'excited', 'group', 'guess', 'happen', 'heading', 'hear', 'here', 'however', 'ideal',
+    'important', 'itself', 'knew', 'know', 'known', 'later', 'likely', 'mind', 'mostly', 'nearly', 'once',
+    'particular', 'past', 'people', 'person', 'picked', 'plan', 'planning', 'possible', 'probably',
+    'proper', 'reason', 'recent', 'recently', 'say', 'seen', 'send', 'similar', 'sometimes', 'somewhere',
+    'soon', 'spend', 'spending', 'still', 'suppose', 'sure', 'taking', 'tell', 'think', 'third', 'though',
+    'today', 'tomorrow', 'took', 'trying', 'upcoming', 'upon', 'useful', 'usual', 'usually', 'visit',
+    'visiting', 'went', 'reading', 'feel', 'feeling', 'feels', 'always', 'place', 'places', 'match',
+    'matches', 'career', 'remote', 'last', 'next', 'week', 'weeks', 'month', 'year', 'years', 'morning',
+    'outside', 'inside', 'actually', 'basically', 'often', 'super', 'extra', 'friend', 'friends', 'love',
+    'loves', 'loved', 'prefer', 'same', 'different', 'another', 'special', 'specific', 'general', 'normal',
+    'several', 'first', 'second', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
+    'deliver', 'delivery', 'shipping', 'return', 'quality', 'ur', 'thx', 'tho', 'cuz', 'coz', 'bcoz', 'abt',
+    'btw', 'lol', 'omg', 'idk', 'asap',
     # Hinglish / Hindi fillers in Latin script
     'mujhe', 'muje', 'mujhko', 'humko', 'hume', 'hamein', 'chahiye', 'chaiye', 'chahie', 'chahte',
     'chahti', 'chahta', 'ke', 'ki', 'ka', 'ko', 'se', 'mein', 'pe', 'par', 'hai', 'hain', 'ho',
@@ -2255,6 +2287,8 @@ FOREIGN_WORDS = {
     'kapdon': 'clothes', 'kapre': 'clothes', 'poshak': 'outfit', 'poshaak': 'outfit', 'libaas': 'outfit',
     'kurta': 'tunic', 'kurti': 'tunic', 'kurtis': 'tunic', 'kurtas': 'tunic', 'kameez': 'tunic',
     'anarkali': 'maxi dress', 'choli': 'blouse', 'salwar': 'trousers', 'shalwar': 'trousers',
+    'salwar suit': 'tunic and trousers', 'salwar kameez': 'tunic and trousers',
+    'shalwar kameez': 'tunic and trousers', 'kurta set': 'tunic and trousers',
     'churidar': 'leggings', 'lungi': 'sarong', 'dupatta': 'scarf', 'chunni': 'scarf', 'odhni': 'scarf',
     'topi': 'hat', 'chashma': 'sunglasses', 'chasma': 'sunglasses', 'chashmah': 'sunglasses',
     'ghadi': 'watch', 'ghari': 'watch', 'jhumka': 'earring', 'jhumke': 'earring', 'jhumki': 'earring',
@@ -2420,7 +2454,8 @@ COMPLEMENT_MAP = {
     'Blazer': ['Trousers', 'Shirt', 'Blouse', 'Top', 'T-shirt', 'Skirt', 'Tie', 'Belt', 'Pumps',
                'Other shoe', 'Tailored Waistcoat'],
     'Tailored Waistcoat': ['Shirt', 'Trousers', 'Blazer', 'Tie', 'Belt', 'Other shoe'],
-    'Jacket': ['Scarf', 'Hat/beanie', 'Gloves', 'Sweater', 'Hoodie', 'T-shirt', 'Trousers', 'Boots',
+    # jackets range from parkas to denim and biker jackets: winter accessories and layers alternate
+    'Jacket': ['Scarf', 'T-shirt', 'Trousers', 'Boots', 'Sweater', 'Hat/beanie', 'Gloves', 'Hoodie',
                'Sneakers'],
     'Coat': ['Scarf', 'Gloves', 'Hat/beanie', 'Boots', 'Sweater', 'Trousers', 'Bag', 'Dress'],
     'Outdoor Waistcoat': ['Sweater', 'Hoodie', 'Shirt', 'T-shirt', 'Hat/beanie', 'Scarf', 'Gloves', 'Trousers',

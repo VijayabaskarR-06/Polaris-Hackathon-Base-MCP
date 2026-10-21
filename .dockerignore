@@ -5,3 +5,5 @@ __pycache__
 .env
 *.pyc
 .DS_Store
+eval/runs
+logs

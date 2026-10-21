@@ -46,7 +46,8 @@ CONTEXT_RE = re.compile(
     r'\b(?:to go with|that goes? with|which goes? with|that would go with|goes? well with|to wear with|to pair with'
     r'|that pairs? with|to match|that matches|matching (?=my |our |her |his )|for (?=my |our )(?:\w+ ){0,2}'
     r'(?:dress|outfit|suit|saree|sari|lehenga|gown|jeans|jacket))')
-SPLIT_RE = re.compile(r'\band\b|&|\bplus\b|\bas well as\b|,|/|;|\+|\bor\b|\balso\b|\baur\b|\bya\b|\bthen\b')
+SPLIT_RE = re.compile(r'\band\b|&|\bplus\b(?![\s-]*sized?\b)|\bas well as\b|,|/|;|\+|\bor\b|\balso\b|\baur\b'
+                      r'|\bya\b|\bthen\b')
 INJECTION_RE = re.compile(
     r'ignore (?:all |any |the |your |previous |prior |above |earlier )*(?:instructions|rules|prompts?|guidelines)'
     r'|system prompt|developer (?:message|mode)|jailbreak|you are now|act as (?:a|an|the)\b|pretend (?:to be|you)'
@@ -74,6 +75,12 @@ MIN_BUDGET = 100
 AGE_RE = re.compile(r'\b(\d{1,2})\s*(?:-|\s)?\s*(years?|yrs?|y/o|yo|months?|mths?)(?:\s*-?\s*old)?\b'
                     r'|\baged?\s*(\d{1,2})\b')
 # Words too generic to tell a product type apart ("football shirt": football matters, shirt doesn't).
+# Sections that are a shopper requirement when named ("plus size", "maternity"), not a mood.
+REQUIRED_SECTIONS = {'H&M+', 'Mama'}
+# Gifts for little ones: the adult gift list (wallets, watches) has nothing for them.
+CHILD_GIFT_TYPES = ['Giftbox', 'Soft Toys', 'Bodysuit', 'Garment Set', 'Sleeping sack', 'Bootie', 'Hat/beanie',
+                    'Socks', 'Pyjama set', 'Dress']
+BACK_REFERENCES = {'it', 'them', 'this', 'that', 'these', 'those', 'one', 'it too', 'them too'}
 # "unicorn stuff", "cute things": the object is "clothing in general".
 PLACEHOLDER_OBJECTS = {'stuff', 'thing', 'item', 'clothe', 'clothing', 'garment', 'apparel', 'gear', 'kit'}
 GENERIC_GARMENT_WORDS = {'shirt', 'top', 'tee', 'tshirt', 'wear', 'set', 'clothe', 'clothing', 'outfit', 'item',
@@ -171,6 +178,8 @@ class Segment:
     content_words: list = field(default_factory=list)
     hint_types: list = field(default_factory=list)  # "keep my hands warm" -> Gloves
     match_terms: list = field(default_factory=list) # words a product must say to be the named type
+    audience: set = field(default_factory=set)      # audience groups named inside this segment
+    required_sections: list = field(default_factory=list)  # plus size / maternity: stated requirements
     prep_at: int = None
 
     @property
@@ -240,8 +249,11 @@ class RulePlanner:
             if content_kind:
                 seg.content.append((start, content_kind))
                 seg.content_words.append((start, ' '.join(phrase)))
-            if idx in modifiers:
-                # "shirt dress": the modifier noun describes the head item.
+            late_type = (start > prep_at and (seg.types or seg.group_types)
+                         and any(k in ('type', 'type_group') for k, _ in entries))
+            if idx in modifiers or late_type:
+                # "shirt dress": the modifier noun describes the head item; "boots with a heel":
+                # once the item is named, a type after a preposition describes it.
                 seg.descriptors.append(' '.join(phrase))
                 signals.content_tokens += 1
                 continue
@@ -300,7 +312,9 @@ class RulePlanner:
                     (seg.exclude_colors if negated else seg.colors).append(list(payload))
                 elif kind == 'pattern':
                     if negated:
+                        # "without lace": also drop products whose text says lace (a lace trim).
                         seg.exclude_patterns += payload
+                        seg.exclude_words.append(' '.join(phrase))
                     else:
                         seg.patterns += [p for p in payload if p not in seg.patterns]
                 elif kind == 'material':
@@ -322,11 +336,15 @@ class RulePlanner:
                     seg.occasions.append(payload)
                 elif kind == 'audience':
                     signals.audience.add(payload)
+                    seg.audience.add(payload)
                 elif kind == 'section':
                     signals.content_tokens += 1
                     seg.sections += payload['sections']
+                    seg.required_sections += [x for x in payload['sections'] if x in REQUIRED_SECTIONS
+                                              and x not in seg.required_sections]
                     if payload.get('group'):
                         signals.audience.add(payload['group'])
+                        seg.audience.add(payload['group'])
                 elif kind == 'price_low':
                     signals.price_low = True
                 elif kind == 'price_high':
@@ -403,11 +421,15 @@ class RulePlanner:
         elif wm:
             main_end, comp_start, comp_end = wm.start(), wm.start(1), wm.end(1)
         cm = CONTEXT_RE.search(clean[:main_end])
+        back_reference = False
         if cm:
             context_start = cm.start()
             signals.context = clean[cm.end():main_end].strip()
+            # "a tie to go with it", "socks to wear with them": the item before the marker
+            # accompanies the main item; nothing new is named after it.
+            back_reference = ' '.join(signals.context.split()) in BACK_REFERENCES
             main_end = context_start
-        elif comp_start is None:
+        if comp_start is None and (not cm or back_reference):
             accompany = self._with_item(clean[:main_end])
             if accompany is not None:
                 main_end, comp_start, comp_end = accompany, accompany + 4, main_end
@@ -439,6 +461,10 @@ class RulePlanner:
         choices_segs = self._merge(segments)
         main_budgets = [b for s in segments for b in s.budgets]
         choices_segs = self._distribute_headers(choices_segs)
+        if back_reference and complement is None and len(choices_segs) >= 2:
+            # "chelsea boots for men, and some socks to wear with them": the last item accompanies.
+            complement = choices_segs.pop()
+            comp_start = complement.start
         if len(choices_segs) > 1 and (each or len(main_budgets) == 1):
             for s in choices_segs:
                 s.budgets = list(main_budgets)
@@ -447,8 +473,15 @@ class RulePlanner:
 
         plan = Plan(source='rules')
         plan.audience_group = self._audience(signals.audience)
+        per_choice = {self._audience(s.audience) for s in choices_segs if s.audience}
         for s in choices_segs:
-            plan.choices.append(self._choice(s, signals))
+            choice = self._choice(s, signals)
+            if len(per_choice) > 1:
+                # "a swimsuit for my wife and swim shorts for my son": each item has its own wearer.
+                choice.audience_group = self._audience(s.audience) if s.audience else None
+            plan.choices.append(choice)
+        if len(per_choice) > 1:
+            plan.audience_group = None
         if complement is not None and (complement.has_type or complement.descriptors):
             plan.complement = self._choice(complement, signals)
         signals.unknown = [w for s in segments for w in s.unknown]
@@ -466,7 +499,11 @@ class RulePlanner:
             before = self.analyze(Segment(0, w.start(), text[:w.start()]), Signals())
             after = self.analyze(Segment(0, 0, text[w.end():]), Signals())
             if (before.has_type and after.types and self.head_kind(after, after.prep_at) == 'type'
-                    and not set(after.types) & set(before.types + before.group_types)):
+                    and not set(after.types) & set(before.types + before.group_types)
+                    and not self.vocab.categories_of(after.types) & self.vocab.categories_of(
+                        before.types + before.group_types)):
+                # "dress with gold earrings": another category is an accompanying item;
+                # "boots with a heel" stays within shoes, so the heel is a feature.
                 return w.start()
         return None
 
@@ -534,6 +571,8 @@ class RulePlanner:
                 if v not in values:
                     values.append(v)
         target.generic = target.generic or other.generic
+        target.audience |= other.audience
+        target.required_sections += [x for x in other.required_sections if x not in target.required_sections]
 
     @staticmethod
     def _audience(groups):
@@ -557,11 +596,25 @@ class RulePlanner:
                 if t not in keywords:
                     keywords.append(t)
         soft_words, soft_sections = [], list(dict.fromkeys(seg.sections))
-        occasion_types = []
+        occasion_types, occasion_sections, occasion_audiences = [], [], []
+        type_sets = []
         for occ in seg.occasions:
             soft_words += [w for w in occ['keywords'] if w not in soft_words]
             soft_sections += [s for s in occ['sections'] if s not in soft_sections]
+            occasion_sections += [s for s in occ['sections'] if s not in occasion_sections]
+            if occ.get('audience') and occ['audience'] not in occasion_audiences:
+                occasion_audiences.append(occ['audience'])
             occasion_types += [t for t in occ['types'] if t not in occasion_types]
+            if occ['types']:
+                type_sets.append(set(occ['types']))
+        if len(type_sets) > 1:
+            # "beach wedding": what both occasions call for (a dress), not everything either does.
+            shared = [t for t in occasion_types if all(t in ts for ts in type_sets)]
+            if shared:
+                occasion_types = shared
+        group = self._audience(seg.audience) or self._audience(signals.audience)
+        if group in ('baby', 'kids', 'girls', 'boys') and any('gift' in occ['keywords'] for occ in seg.occasions):
+            occasion_types = [t for t in CHILD_GIFT_TYPES if t in self.vocab.type_set]
         from_occasion = not types and bool(occasion_types or seg.hint_types)
         if from_occasion:
             types = list(seg.hint_types) or occasion_types
@@ -594,6 +647,9 @@ class RulePlanner:
         choice.needs_keyword = seg.needs_keyword
         choice.match_terms = list(seg.match_terms)
         choice.occasion_types = from_occasion
+        choice.occasion_sections = occasion_sections
+        choice.occasion_audiences = occasion_audiences
+        choice.required_sections = list(seg.required_sections)
         choice.head = self.head_kind(seg, seg.prep_at)
         before = [w for pos, w in seg.content_words if seg.prep_at is None or pos < seg.prep_at]
         choice.head_word = before[-1] if before else None

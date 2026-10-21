@@ -25,12 +25,33 @@ FOREIGN_FUNCTION_WORDS = {
     'y': 'and', 'et': 'and', 'und': 'and',
     'ou': 'or', 'oder': 'or',
     'de': 'of', 'del': 'of', 'des': 'of', 'du': 'of', 'di': 'of', 'da': 'of',
+    'en': 'in', 'em': 'in', 'im': 'in', 'nel': 'in', 'al': 'to the', 'au': 'to the', 'aux': 'to the', 'zu': 'to',
     'el': 'the', 'la': 'the', 'los': 'the', 'las': 'the', 'le': 'the', 'les': 'the', 'der': 'the',
     'die': 'the', 'das': 'the', 'il': 'the',
     'un': 'a', 'una': 'a', 'une': 'a', 'ein': 'a', 'eine': 'a', 'uno': 'a', 'um': 'a', 'uma': 'a',
     'a juego': 'matching', 'assorti': 'matching', 'assortie': 'matching', 'passend': 'matching',
     'menos de': 'under', 'moins de': 'under', 'unter': 'under', 'sotto': 'under', 'abaixo de': 'under',
     'mas de': 'over', 'plus de': 'over', 'uber': 'over', 'sopra': 'over',
+    # context words of common shopping languages that the lexicon lacks
+    'fiesta': 'party', 'fete': 'party', 'soiree': 'evening party', 'feier': 'party', 'festa': 'party',
+    'noche': 'evening', 'nuit': 'evening', 'abend': 'evening', 'sera': 'evening', 'noite': 'evening',
+    'boda': 'wedding', 'mariage': 'wedding', 'hochzeit': 'wedding', 'matrimonio': 'wedding', 'casamento': 'wedding',
+    'playa': 'beach', 'plage': 'beach', 'strand': 'beach', 'spiaggia': 'beach', 'praia': 'beach',
+    'trabajo': 'office', 'oficina': 'office', 'travail': 'office', 'bureau': 'office', 'buro': 'office',
+    'arbeit': 'office', 'lavoro': 'office', 'ufficio': 'office', 'trabalho': 'office', 'escritorio': 'office',
+    'invierno': 'winter', 'hiver': 'winter', 'winter': 'winter', 'inverno': 'winter',
+    'verano': 'summer', 'ete': 'summer', 'sommer': 'summer', 'estate': 'summer', 'verao': 'summer',
+    'lana': 'wool', 'laine': 'wool', 'wolle': 'wool', 'algodon': 'cotton', 'coton': 'cotton', 'baumwolle': 'cotton',
+    'cotone': 'cotton', 'algodao': 'cotton', 'lino': 'linen', 'lin': 'linen', 'leinen': 'linen', 'linho': 'linen',
+    'seda': 'silk', 'soie': 'silk', 'seide': 'silk', 'seta': 'silk', 'cuero': 'leather', 'cuir': 'leather',
+    'leder': 'leather', 'pelle': 'leather', 'couro': 'leather',
+    'caliente': 'warm', 'calido': 'warm', 'chaud': 'warm', 'chaude': 'warm', 'warm': 'warm', 'caldo': 'warm',
+    'quente': 'warm', 'frio': 'cold', 'froid': 'cold', 'kalt': 'cold', 'freddo': 'cold',
+    'barato': 'cheap', 'barata': 'cheap', 'pas cher': 'cheap', 'billig': 'cheap', 'economico': 'cheap',
+    'regalo': 'gift', 'cadeau': 'gift', 'geschenk': 'gift', 'presente': 'gift',
+    'nina': 'girl', 'nino': 'boy', 'fille': 'girl', 'garcon': 'boy', 'madchen': 'girl', 'junge': 'boy',
+    'bebe': 'baby', 'hombre': 'men', 'homme': 'men', 'herren': 'men', 'uomo': 'men', 'homem': 'men',
+    'mujer': 'women', 'femme': 'women', 'damen': 'women', 'donna': 'women', 'mulher': 'women',
 }
 # Common shopping words in Devanagari (Hindi), applied before accents are folded away.
 DEVANAGARI_WORDS = {
@@ -174,6 +195,8 @@ class SpellFixer:
             found.update(self.deletes.get(variant, ()))
         best = None
         for form in found:
+            if form[0] != token[0]:
+                continue          # typos almost never change the first letter ("bake" is not "fake")
             if len(token) == 4 and not (len(form) == 5 and token in self._deletes(form)
                                         and self.surface[form] in self.protected):
                 continue
@@ -213,6 +236,10 @@ class Vocab:
             prices[p['product_type']].append(p['price']['amount'])
         self.type_band = {t: (min(v), float(np.median(v)), max(v)) for t, v in prices.items()}
         self.type_set = set(self.values['product_type'])
+        counts = defaultdict(lambda: defaultdict(int))
+        for p in products:
+            counts[p['product_type']][p['category']] += 1
+        self.type_category = {t: max(c, key=c.get) for t, c in counts.items()}
 
     def _group_masks(self):
         idx = self.index
@@ -238,6 +265,9 @@ class Vocab:
         }
         for mask in self.group_masks.values():
             mask.flags.writeable = False
+
+    def categories_of(self, types):
+        return {self.type_category[t] for t in types if t in self.type_category}
 
     def group_of(self, pos):
         """The broad audience family of one product (for recommendation audience matching)."""

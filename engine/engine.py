@@ -124,6 +124,7 @@ class SemanticEngine:
         self.locks = KeyLocks()
         self.adult = self.vocab.group_masks['women'] | self.vocab.group_masks['men']
         self.section_codes = {s: i for i, s in enumerate(index.values['section'])}
+        self.audience_codes = {a: i for i, a in enumerate(index.values['audience'])}
         self.pattern_codes = {p: i for i, p in enumerate(index.values['pattern'])}
         self.recommender = Recommender(self)
         self.llm = llm
@@ -298,7 +299,8 @@ class SemanticEngine:
         tm = type_mask(idx, types) if types else None
         core = terms_of(choice.keywords)
         desc = [t for t in terms_of(getattr(choice, 'descriptors', [])) if t not in core]
-        unknown = [t for t in terms_of(getattr(choice, 'unknown', [])) if t not in core and t not in desc]
+        unknown = [t for t in terms_of(getattr(choice, 'unknown', [])) if t not in core and t not in desc
+                   and len(t) > 2]
         soft = [t for t in terms_of(choice.soft_words) if t not in core and t not in desc]
         soft_sections = [self.section_codes[s] for s in choice.soft_sections if s in self.section_codes]
         sec_mask = np.isin(idx.codes['section'], soft_sections) if soft_sections else None
@@ -357,6 +359,15 @@ class SemanticEngine:
         free_cov = (bm.coverage(free)[positions] / len(free)) if free else np.ones(len(positions))
         free_name = (bm.name_hits(free)[positions] / len(free)) if free else np.zeros(len(positions))
         sec_hit = sec_mask[positions] if sec_mask is not None else zeros
+        occ_sections = [self.section_codes[x] for x in getattr(choice, 'occasion_sections', []) if x in self.section_codes]
+        occ_audiences = [self.audience_codes[x] for x in getattr(choice, 'occasion_audiences', [])
+                         if x in self.audience_codes]
+        # An occasion's audience ("yoga" -> Sport) is a requirement for a top grade; its
+        # sections only hint (a warm scarf is not in an outerwear section).
+        occasion_signal = bool(occ_audiences)
+        occ_hit = zeros.copy()
+        if occ_audiences:
+            occ_hit |= np.isin(idx.codes['audience'][positions], occ_audiences)
         pat_codes = [self.pattern_codes[p] for p in choice.patterns if p in self.pattern_codes]
         pat_hit = np.isin(idx.codes['pattern'][positions], pat_codes) if pat_codes else zeros
         soft_hit = soft_any[positions] if soft_any is not None else zeros
@@ -367,14 +378,22 @@ class SemanticEngine:
         type_ok = (primary_hit & (kw_hit | (not needs_kw))) | (type_hit & kw_hit)
 
         score = (bm_norm + 4.0 * type_ok + 1.5 * type_hit + 2.0 * name_hit + 2.0 * free_cov
-                 + 1.5 * sec_hit + 1.0 * pat_hit + 0.5 * soft_hit)
+                 + 1.5 * sec_hit + 1.5 * occ_hit + 1.0 * pat_hit + 0.5 * soft_hit)
+        del occ_sections
+        adult_first = (getattr(choice, 'audience_group', None) or plan.audience_group) is None
+        if adult_first:
+            # No audience stated: adult products first, before the pool is cut to size.
+            score = score + 1.0 * self.adult[positions]
         est = np.ones(len(positions), dtype=np.int64)
         if tm is not None and not occasion_types:
             est[type_hit | name_hit] = 2
-            est[type_ok & (free_cov >= 0.999)] = 3
+            top = type_ok & (free_cov >= 0.999)
+            if occasion_signal:
+                top &= occ_hit       # "yoga leggings": sports leggings, not fashion ones
+            est[top] = 3
         elif tm is not None:
             est[type_hit] = 2
-            est[type_hit & (sec_hit | soft_hit)] = 3
+            est[type_hit & (occ_hit if occasion_signal else (sec_hit | soft_hit))] = 3
         elif free:
             est[free_cov >= 0.5] = 2
             est[(free_cov >= 0.999) & ((free_name > 0) | (len(free) == 1))] = 3
@@ -384,7 +403,7 @@ class SemanticEngine:
         order = np.lexsort((positions, -score))[:k]
         best_cov = float(free_cov.max()) if free else 1.0
         positions, score, est = positions[order], score[order], est[order]
-        priors = self.priors(choice, positions, score, adult_first=plan.audience_group is None)
+        priors = self.priors(choice, positions, score, adult_first=adult_first)
         return Pool(ci, choice, positions, score, est, priors, True, hard,
                     support_count=int(base.sum()), best_coverage=best_cov)
 
@@ -397,7 +416,7 @@ class SemanticEngine:
         top = float(score.max()) if len(score) else 0.0
         prior = score / top if top > 0 else np.zeros(len(positions))
         if adult_first:
-            prior = 0.7 * prior + 0.3 * self.adult[positions]
+            prior = 0.5 * prior + 0.5 * self.adult[positions]
         pref = None
         if choice.price_preference in ('low', 'high'):
             price = self.index.price[positions]

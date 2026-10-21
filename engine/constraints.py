@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 STRICT_COLOR_MIN = 20
+REQUIRED_SECTION_MIN = 5
 
 
 @dataclass
@@ -65,9 +66,18 @@ def hard_mask(index, vocab, filters, plan, choice, support=None):
     """
     mask = base_mask(index, filters)
     info = HardInfo(mask=mask)
-    if plan.audience_group:
-        mask = _apply(mask, vocab.group_masks[plan.audience_group], info, 'audience_group',
-                      ('audience', 'section'), filters)
+    group = getattr(choice, 'audience_group', None) or plan.audience_group
+    if group:
+        mask = _apply(mask, vocab.group_masks[group], info, 'audience_group', ('audience', 'section'), filters)
+    required = getattr(choice, 'required_sections', None)
+    if required and 'section' not in filters:
+        # "plus size", "maternity": a stated requirement, enforced when the catalog can satisfy it.
+        sections = _codes_mask(index, 'section', required)
+        pool = mask if support is None else mask & support
+        if np.count_nonzero(pool & sections) >= REQUIRED_SECTION_MIN:
+            mask = mask & sections
+        else:
+            info.dropped.append('required_sections')
     if choice.min_price is not None or choice.max_price is not None:
         low = choice.min_price if choice.min_price is not None else -np.inf
         high = choice.max_price if choice.max_price is not None else np.inf

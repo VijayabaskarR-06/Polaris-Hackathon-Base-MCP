@@ -105,7 +105,9 @@ class Recommender:
         same_family = np.array([color_family(colors[c]) == color_family(anchor['color']) for c in color_codes])
         kw_hit = (bm.coverage(kw_terms)[positions] > 0) if kw_terms else np.ones(len(positions), dtype=bool)
         rating = np.nan_to_num(self.index.rating[positions], nan=0.0) / 5.0
-        score = (2.0 * harmony + 1.0 * same_family + 1.5 * bm_norm + 1.0 * kw_hit + 0.3 * rating
+        # Judged data: neutral accessories (black, white, beige, gold, silver) grade at least as
+        # well as same-colour ones, so harmony matters and an exact colour match only a little.
+        score = (2.0 * harmony + 0.3 * same_family + 1.5 * bm_norm + 1.0 * kw_hit + 0.3 * rating
                  - 0.6 * np.minimum(type_rank, 5))
         est = np.where(harmony & kw_hit, 3, 2)
         if explicit and not kw_terms:

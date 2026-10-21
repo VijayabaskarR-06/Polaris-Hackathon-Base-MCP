@@ -110,6 +110,47 @@ class PlanTests(unittest.TestCase):
         self.assertIn('Sneakers', plan.choices[0].product_types)
         self.assertIn('Trousers', self.plan('blak jeens').choices[0].product_types)
 
+    def test_per_choice_audience(self):
+        plan = self.plan('a swimsuit for my wife and swim shorts for my son')
+        self.assertEqual([c.audience_group for c in plan.choices], ['women', 'boys'])
+        self.assertIsNone(plan.audience_group)
+        self.assertEqual(self.plan('jeans and a t-shirt for my son').audience_group, 'boys')
+
+    def test_back_reference_makes_a_complement(self):
+        plan = self.plan("men's suit jacket with a tie to go with it")
+        self.assertIn('Blazer', plan.choices[0].product_types)
+        self.assertIn('Tie', plan.complement.product_types)
+        plan = self.plan('chelsea boots for men, and some socks to wear with them')
+        self.assertEqual(len(plan.choices), 1)
+        self.assertIn('Socks', plan.complement.product_types)
+
+    def test_with_item_needs_another_category(self):
+        self.assertIn('Earring', self.plan('black dress with gold earrings under 500').complement.product_types)
+        plan = self.plan('ankle boots with a heel')
+        self.assertIsNone(plan.complement)
+        self.assertEqual(plan.choices[0].product_types, ['Boots'])
+
+    def test_pet_is_the_wearer(self):
+        self.assertIn('Dog Wear', self.plan('a warm jumper for my dog').choices[0].product_types)
+        self.assertEqual(self.plan('jumper with a dog print').choices[0].product_types, ['Sweater'])
+
+    def test_short_is_a_length(self):
+        self.assertEqual(self.plan('a short black dress').choices[0].product_types, ['Dress'])
+        self.assertIn('Shorts', self.plan('denim shorts').choices[0].product_types)
+        self.assertNotIn('Top', self.plan('nothing over the top, a simple dress').choices[0].product_types)
+
+    def test_ages_and_plus_size(self):
+        self.assertEqual(self.plan('football shirt for my 8 year old').audience_group, 'kids')
+        self.assertEqual(self.plan('romper for a 6 month old').audience_group, 'baby')
+        self.assertEqual(self.plan('plus size wrap dress').choices[0].required_sections, ['H&M+'])
+
+    def test_foreign_and_devanagari(self):
+        plan = self.plan('zapatos rojos para mujer')
+        self.assertEqual(plan.audience_group, 'women')
+        self.assertIn('Red', plan.choices[0].colors)
+        self.assertIn('Trousers', self.plan('लड़कों के लिए नीली जींस').choices[0].product_types)
+        self.assertEqual(self.plan('लड़कों के लिए नीली जींस').audience_group, 'boys')
+
     def test_brand_and_non_catalog_signals(self):
         self.assertTrue(signals_of(self.plan('nike air max shoes')).brands)
         self.assertTrue(signals_of(self.plan('laptop with 16gb ram')).non_catalog)

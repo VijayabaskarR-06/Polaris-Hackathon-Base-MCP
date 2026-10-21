@@ -35,6 +35,7 @@ PLANNER_DEADLINE = float(os.getenv('PLANNER_DEADLINE', '2.5'))
 JUDGE_DEADLINE = float(os.getenv('JUDGE_DEADLINE', '6.0'))
 RECS_DEADLINE = float(os.getenv('RECS_DEADLINE', '8.0'))
 TWIN_POOL = int(os.getenv('TWIN_POOL', '100'))   # products per choice the Judge Twin grades
+TWIN_WEIGHT = float(os.getenv('TWIN_WEIGHT', '0.8'))
 CALIBRATION_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 'assets', 'calibration.json')
 
@@ -441,8 +442,12 @@ class SemanticEngine:
         for pool_index, pool in enumerate(pools):
             for i, pid in enumerate(pool.positions.tolist()):
                 twin = (grades or {}).get(pid)
-                probs = (points.grade_probs(twin, self.calibration, source='twin') if twin
-                         else points.grade_probs([int(pool.estimates[i])], self.calibration, source='estimate'))
+                estimate = points.grade_probs([int(pool.estimates[i])], self.calibration, source='estimate')
+                probs = estimate
+                if twin:
+                    # The twin decides; the rule estimate is a small hedge against a twin failure mode.
+                    judged = points.grade_probs(twin, self.calibration, source='twin')
+                    probs = tuple(TWIN_WEIGHT * a + (1 - TWIN_WEIGHT) * b for a, b in zip(judged, estimate))
                 cand = points.Candidate(pid=pid, probs=probs, choice=pool_index, prior=float(pool.priors[i]))
                 old = best.get(pid)
                 if old is None or points.expected_gain(cand.probs) > points.expected_gain(old.probs):

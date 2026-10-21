@@ -30,6 +30,7 @@ FOREIGN_FUNCTION_WORDS = {
     'die': 'the', 'das': 'the', 'il': 'the',
     'un': 'a', 'una': 'a', 'une': 'a', 'ein': 'a', 'eine': 'a', 'uno': 'a', 'um': 'a', 'uma': 'a',
     'a juego': 'matching', 'assorti': 'matching', 'assortie': 'matching', 'passend': 'matching',
+    'da abbinare': 'matching', 'abbinato': 'matching', 'abbinata': 'matching', 'combinando': 'matching',
     'menos de': 'under', 'moins de': 'under', 'unter': 'under', 'sotto': 'under', 'abaixo de': 'under',
     'mas de': 'over', 'plus de': 'over', 'uber': 'over', 'sopra': 'over',
     # context words of common shopping languages that the lexicon lacks
@@ -75,17 +76,6 @@ DEVANAGARI_WORDS = {
 }
 DEVANAGARI_DIGITS = str.maketrans('०१२३४५६७८९', '0123456789')
 
-# Needs described by body part ("keep my hands warm") point at specific product types.
-BODY_PART_HINTS = {
-    'hand': (['Gloves'], ['gloves', 'mittens']), 'finger': (['Gloves'], ['gloves']),
-    'foot': (['Socks', 'Slippers', 'Boots'], ['socks', 'slippers']), 'feet': (['Socks', 'Slippers', 'Boots'], ['socks']),
-    'toe': (['Socks'], ['socks']), 'neck': (['Scarf'], ['scarf']), 'throat': (['Scarf'], ['scarf']),
-    'head': (['Hat/beanie', 'Cap/peaked', 'Hat/brim'], ['hat', 'beanie', 'cap']),
-    'ear': (['Hat/beanie', 'Earring'], ['beanie', 'earrings']), 'eye': (['Sunglasses'], ['sunglasses']),
-    'wrist': (['Watch', 'Bracelet'], ['watch', 'bracelet']), 'waist': (['Belt'], ['belt']),
-    'hair': (['Hair clip', 'Hair/alice band', 'Hair string', 'Hair ties'], ['hair']),
-    'leg': (['Leggings/Tights', 'Trousers', 'Underwear Tights'], ['tights', 'leggings']),
-}
 # Inflected forms ("rojos", "noires", "rote") are looked up by trying these endings.
 FOREIGN_ENDINGS = ('s', 'es', 'e', 'en', 'n', 'a', 'as', 'os', 'er')
 KIDS_AUDIENCES = ('Children Sizes 92-140', 'Children Sizes 134-170',
@@ -325,10 +315,9 @@ class Vocab:
                 'sections': [s for s in (self.exact('section', s) for s in info.get('sections', [])) if s],
                 'audience': self.exact('audience', info['audience']) if info.get('audience') else None,
             })
-        for word, (types, keywords) in BODY_PART_HINTS.items():
-            for form in (word, word + 's') if not word.endswith('t') or word == 'feet' else (word,):
-                m.add(form, 'hint', {'types': self.types(types), 'keywords': list(keywords), 'sections': [],
-                                     'audience': None})
+        for word, (types, keywords) in table('BODY_PART_WORDS').items():
+            m.add(word, 'hint', {'types': self.types(types), 'keywords': list(keywords), 'sections': [],
+                                 'audience': None})
         for word, words in table('MATERIAL_WORDS').items():
             m.add(word, 'material', list(words))
         for word, words in table('STYLE_WORDS').items():
@@ -354,7 +343,7 @@ class Vocab:
         self.foreign_re = None
         if self.foreign:
             keys = sorted(self.foreign, key=len, reverse=True)
-            self.foreign_re = re.compile(r'\b(?:' + '|'.join(r'\s+'.join(map(re.escape, k.split())) for k in keys)
+            self.foreign_re = re.compile(r'\b(?:' + '|'.join(r'[\s\-]+'.join(map(re.escape, k.split())) for k in keys)
                                          + r')\b')
 
     @staticmethod
@@ -375,7 +364,7 @@ class Vocab:
         """
         if self.foreign_re is None:
             return text
-        text = self.foreign_re.sub(lambda m: self.foreign[' '.join(m.group(0).split())], text)
+        text = self.foreign_re.sub(lambda m: self.foreign[' '.join(re.split(r'[\s\-]+', m.group(0)))], text)
         return WORD_RE.sub(self._inflected, text)
 
     def _inflected(self, match):

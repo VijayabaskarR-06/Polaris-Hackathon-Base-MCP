@@ -361,7 +361,8 @@ class SemanticEngine:
         name_hit = (bm.name_hits(core)[positions] > 0) if core else zeros
         match = getattr(choice, 'match_terms', None) or core
         kw_hit = (bm.coverage(match)[positions] > 0) if match else zeros
-        free = desc + unknown
+        # Unknown words (typos, fillers) still add BM25 score but cannot block a top estimate.
+        free = desc if desc else []
         free_cov = (bm.coverage(free)[positions] / len(free)) if free else np.ones(len(positions))
         free_name = (bm.name_hits(free)[positions] / len(free)) if free else np.zeros(len(positions))
         sec_hit = sec_mask[positions] if sec_mask is not None else zeros
@@ -407,7 +408,9 @@ class SemanticEngine:
             est[:] = 2
 
         order = np.lexsort((positions, -score))[:k]
-        best_cov = float(free_cov.max()) if free else 1.0
+        evidence_terms = desc + unknown
+        best_cov = (float((bm.coverage(evidence_terms)[positions] / len(evidence_terms)).max())
+                    if evidence_terms else 1.0)
         positions, score, est = positions[order], score[order], est[order]
         priors = self.priors(choice, positions, score, adult_first=adult_first)
         return Pool(ci, choice, positions, score, est, priors, True, hard,

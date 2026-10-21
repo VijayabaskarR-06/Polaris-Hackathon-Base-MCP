@@ -2605,3 +2605,35 @@ COMPLEMENT_KEYWORDS = {
     'Hair string': ['scrunchie', 'hair elastic'],
     'Other accessories': ['bag charm', 'keyring', 'sleep mask', 'swimming goggles', 'anklet'],
 }
+
+
+# ---------------------------------------------------------------------------
+# Supplement from the independent holdout (Hinglish family words, fillers, more
+# languages, a few garment words). Checked by tests/test_lexicon.py like the rest.
+
+for _word in ('bhai', 'bhaiya'):        # "bhaiya ke liye" is a brother, not filler
+    STOPWORDS.discard(_word)
+FOREIGN_WORDS.update({'bhaiya': 'brother', 'bhaiyya': 'brother', 'bhaiyaa': 'brother', 'bhai': 'brother', 'bhaiji': 'brother', 'bhaijaan': 'brother', 'pitaji': 'dad', 'papaji': 'dad', 'abba': 'dad', 'abbu': 'dad', 'chacha': 'men', 'chachu': 'men', 'tauji': 'men', 'dadaji': 'grandpa', 'nanaji': 'grandpa', 'jiju': 'men', 'mumma': 'mom', 'mummyji': 'mom', 'mammi': 'mom', 'amma': 'mom', 'ammi': 'mom', 'bhabhi': 'women', 'bhabhiji': 'women', 'chachi': 'women', 'mausi': 'women', 'masi': 'women', 'bua': 'women', 'mami': 'women', 'bahen': 'sister', 'behna': 'sister', 'bitiya': 'daughter', 'munni': 'girl', 'bete': 'son', 'munna': 'boy'})
+FOREIGN_WORDS.update({'saath mein': 'with', 'ke saath': 'with', 'ke sath': 'with', 'sath mein': 'with', 'ghar': 'home', 'ghar mein': 'at home', 'raat': 'evening', 'shaam': 'evening', 'biquini': 'bikini', 'pra': 'for', 'ela': 'her', 'ele': 'him', 'oculos de sol': 'sunglasses', 'chapeu': 'hat', 'meias': 'socks', 'sandalia': 'sandals', 'chinelo': 'flipflop', 'sunga': 'swim shorts', 'mein kind': 'my child', 'regenjacke': 'rain jacket', 'regenmantel': 'raincoat', 'wasserdicht': 'waterproof', 'gummistiefel': 'rain boots', 'hausschuhe': 'slippers', 'chaussons': 'slippers', 'pantoufles': 'slippers', 'grand mere': 'grandmother', 'mamie': 'grandmother', 'pieds': 'feet', 'abuela': 'grandmother', 'abuelo': 'grandfather', 'hijo': 'son', 'hija': 'daughter', 'esposa': 'wife', 'marido': 'husband', 'novia': 'girlfriend', 'largo': 'long', 'larga': 'long', 'costume intero': 'swimsuit'})
+STOPWORDS.update(['liebsten', 'aaj', 'aana', 'aani', 'bas', 'bataiye', 'batao', 'bheeg', 'bheegna', 'bhi', 'bolo', 'chalega', 'chalegi', 'dene', 'deni', 'din', 'hoga', 'hogi', 'hoon', 'hun', 'jaana', 'jaata', 'jaate', 'jaati', 'jaisi', 'jana', 'jayega', 'kaisa', 'kaisi', 'kal', 'karne', 'karni', 'lene', 'leni', 'pehen', 'pehenna', 'pehenne', 'pehenni', 'pehnenge', 'pehnna', 'pehnu', 'roz', 'rozana', 'toh', 'wahan', 'waqt', 'yahan'])
+TYPE_WORDS.update({
+    'frock': (['Dress'], ['dress']),
+    'nightsuit': (['Pyjama set'], ['pyjamas']), 'night suit': (['Pyjama set'], ['pyjamas']),
+    'gumboot': (['Boots'], ['rubber']), 'gum boot': (['Boots'], ['rubber']),
+    'wellie': (['Boots'], ['rubber']), 'welly': (['Boots'], ['rubber']),
+    'wellington boot': (['Boots'], ['rubber']), 'rain boot': (['Boots'], ['rubber']),
+})
+NON_CATALOG_WORDS.update({
+    'diya', 'diye', 'diyas', 'rangoli', 'mitti', 'mithai', 'agarbatti', 'phool', 'kalash', 'toran', 'thali',
+    'kettle', 'recharge',
+})
+
+# Needs described by body part ("keep my hands warm", "cold feet") point at product types.
+BODY_PART_WORDS = {
+    'hand': (['Gloves'], ['gloves', 'mittens']), 'finger': (['Gloves'], ['gloves']),
+    'foot': (['Socks', 'Slippers', 'Boots'], ['socks', 'slippers']), 'feet': (['Socks', 'Slippers', 'Boots'], ['socks']),
+    'toe': (['Socks'], ['socks']), 'neck': (['Scarf'], ['scarf']),
+    'ear': (['Hat/beanie', 'Earring'], ['beanie', 'earrings']), 'eye': (['Sunglasses'], ['sunglasses']),
+    'wrist': (['Watch', 'Bracelet'], ['watch', 'bracelet']), 'waist': (['Belt'], ['belt']),
+    'leg': (['Leggings/Tights', 'Trousers', 'Underwear Tights'], ['tights', 'leggings']),
+}

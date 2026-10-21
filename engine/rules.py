@@ -19,7 +19,8 @@ MAX_RES = [re.compile(p) for p in (
     rf'(?:\s+(?:of|upto|up to|max))?)\s*(?:of\s*)?(?:is\s*)?(?::\s*)?{CUR}{NUM}{TAIL}',
     rf'(?:<=?|≤)\s*{CUR}{NUM}{TAIL}',
     rf'{CUR}{NUM}{TAIL}\s*(?:or less|or under|or below|or cheaper|or lower|and under|and below|max(?:imum)?\b'
-    rf'|budget|tak\b|se kam|se neeche|se niche|ke andar|ke under|ke neeche|ke niche|se sasta|ke budget)',
+    rf'|budget|tak\b|se kam|se neeche|se niche|ke andar|ke under|ke neeche|ke niche|se sasta|ke budget'
+    rf'|se (?:zyada|jyada|jada|upar|oopar) (?:nahi|not)\b)',
 )]
 MIN_RES = [re.compile(p) for p in (
     rf'\b(?:over|above|more than|greater than|at least|atleast|min(?:imum)?|starting (?:at|from)|upwards of'
@@ -30,7 +31,7 @@ MIN_RES = [re.compile(p) for p in (
 RANGE_RE = re.compile(rf'(?:\bbetween\s*|\bfrom\s*|\bin the range (?:of\s*)?)?{CUR}{NUM}{TAIL}\s*(?:-|–|to|and|se)\s*{CUR}{NUM}{TAIL}')
 AROUND_RE = re.compile(rf'\b(?:around|about|approximately|approx|roughly|close to|near|nearly|~)\s*{CUR}{NUM}{TAIL}')
 BARE_RE = re.compile(rf'(?:\b(?:for|at|@|priced at|costing|cost|price)\s*{CUR}{NUM}{TAIL})|(?:inr\s*{NUM}{TAIL})|(?:{NUM}\s*inr)')
-EACH_RE = re.compile(r'\b(?:each|per item|per piece|apiece|a piece|har ek|each one)\b')
+EACH_RE = re.compile(r'\b(?:each|per item|per piece|apiece|a piece|har ek|each one|both|dono|all of them|all three)\b')
 
 # "X with a matching Y": Y is a requested accompanying item (recommendations).
 COMPLEMENT_RE = re.compile(
@@ -89,12 +90,17 @@ SERVICE_VERBS = {'book', 'booking', 'reserve', 'reservation', 'rent', 'rental', 
 QUESTION_RE = re.compile(r"^\s*(?:how|what|why|when|where|who|which|whats|what's|is|are|do|does|did|can|could|"
                          r"will|would|should)\b")
 PET_TYPES = {'Dog Wear', 'Dog wear'}
+ADULT_CONTEXT_RE = re.compile(r'\b(?:at work|work|office|colleague|coworker|co-worker|college|uni|university|'
+                              r'girlfriend|gf|wife|woman|women|lady|ladies|girls night|her birthday party|hostel)\b')
+CHILD_CONTEXT_RE = re.compile(r'\b(?:daughter|niece|little|toddler|kid|kids|child|children|school|baby|year old|'
+                              r'years old|yr old|granddaughter|beti)\b')
 # Words whose singular is an adjective while the plural names a garment.
 ADJECTIVE_FORMS = {'short'}
 IDIOM_RE = re.compile(r"\b(?:over the top|on top of|top notch|top-notch|tip top|on top)\b")
 BACK_REFERENCES = {'it', 'them', 'this', 'that', 'these', 'those', 'one', 'it too', 'them too'}
 # "unicorn stuff", "cute things": the object is "clothing in general".
-PLACEHOLDER_OBJECTS = {'stuff', 'thing', 'item', 'clothe', 'clothing', 'garment', 'apparel', 'gear', 'kit'}
+PLACEHOLDER_OBJECTS = {'stuff', 'thing', 'item', 'clothe', 'clothing', 'garment', 'apparel', 'gear', 'kit',
+                       'solution', 'option', 'idea', 'suggestion', 'recommendation', 'choice'}
 GENERIC_GARMENT_WORDS = {'shirt', 'top', 'tee', 'tshirt', 'wear', 'set', 'clothe', 'clothing', 'outfit', 'item',
                          'sport', 'sports', 'style', 'piece', 'garment', 'fashion', 'thing', 'stuff'}
 PREPOSITIONS = {'for', 'with', 'to', 'in', 'on', 'at', 'from', 'during', 'like', 'without', 'by', 'near', 'into'}
@@ -431,14 +437,14 @@ class RulePlanner:
             elif age <= 14:
                 signals.audience.add('kids')
         text = AGE_RE.sub(' ', text)
-        budgets = parse_budgets(text)
         each = bool(EACH_RE.search(text))
+        text = EACH_RE.sub(lambda m: ' ' * len(m.group(0)), text)
+        budgets = parse_budgets(text)
         for b in budgets:
             if b.soft_target is not None:
                 signals.soft_target = b.soft_target
         budget_spans = [(b.start, b.end) for b in budgets]
         clean = _mask_spans(text, budget_spans)
-        clean = EACH_RE.sub(' ', clean)
 
         main_end, comp_start, comp_end = len(clean), None, len(clean)
         context_start = None
@@ -455,7 +461,8 @@ class RulePlanner:
             signals.context = clean[cm.end():main_end].strip()
             # "a tie to go with it", "socks to wear with them": the item before the marker
             # accompanies the main item; nothing new is named after it.
-            back_reference = ' '.join(signals.context.split()) in BACK_REFERENCES
+            first_clause = re.split(r'[,.;!?]', signals.context)[0]
+            back_reference = ' '.join(first_clause.split()) in BACK_REFERENCES
             main_end = context_start
         if comp_start is None and (not cm or back_reference):
             accompany = self._with_item(clean[:main_end])
@@ -486,9 +493,22 @@ class RulePlanner:
             if owner is not None:
                 owner.budgets.append(b)
 
+        trailing = self._trailing_modifiers(segments)
+        alternatives = self._alternatives(main)
         choices_segs = self._merge(segments)
-        main_budgets = [b for s in segments for b in s.budgets]
+        # A budget absorbed into a choice is the same budget, not a second one.
+        main_budgets = list({id(b): b for s in segments for b in s.budgets}.values())
         choices_segs = self._distribute_headers(choices_segs)
+        if len(choices_segs) > 1:
+            for mod in trailing:
+                for target in choices_segs:
+                    self._share(target, mod)
+            if alternatives:
+                # "a dress or a top, in yellow": alternatives for one need share what was stated.
+                for source in list(choices_segs):
+                    for target in choices_segs:
+                        if target is not source:
+                            self._share(target, source, only_missing=True)
         if back_reference and complement is None and len(choices_segs) >= 2:
             # "chelsea boots for men, and some socks to wear with them": the last item accompanies.
             complement = choices_segs.pop()
@@ -499,6 +519,13 @@ class RulePlanner:
         if complement is not None and not complement.budgets and main_budgets and (each or len(main_budgets) == 1):
             complement.budgets = list(main_budgets)
 
+        if 'girls' in signals.audience and ADULT_CONTEXT_RE.search(text) and not CHILD_CONTEXT_RE.search(text):
+            signals.audience.discard('girls')
+            signals.audience.add('women')
+            for seg in segments:
+                if 'girls' in seg.audience:
+                    seg.audience.discard('girls')
+                    seg.audience.add('women')
         plan = Plan(source='rules')
         plan.audience_group = self._audience(signals.audience)
         per_choice = {self._audience(s.audience) for s in choices_segs if s.audience}
@@ -534,6 +561,29 @@ class RulePlanner:
                 # "boots with a heel" stays within shoes, so the heel is a feature.
                 return w.start()
         return None
+
+    @staticmethod
+    def _trailing_modifiers(segments):
+        """Typeless segments after the last item ("..., nothing black pls") qualify every item."""
+        last_typed = max((i for i, seg in enumerate(segments) if seg.has_type), default=-1)
+        return [seg for i, seg in enumerate(segments) if i > last_typed and not seg.has_type and last_typed >= 0]
+
+    @staticmethod
+    def _alternatives(text):
+        """True when the items are joined only by "or"/"ya" (alternatives), not "and"."""
+        seps = re.findall(r'\b(?:and|or|ya|aur|plus)\b|&|\+', text)
+        return bool(seps) and all(sep in ('or', 'ya') for sep in seps)
+
+    @staticmethod
+    def _share(target, source, only_missing=False):
+        """Copy colours, exclusions and budgets from source to target."""
+        for name in ('colors', 'exclude_colors', 'exclude_patterns', 'exclude_words', 'budgets'):
+            values = getattr(target, name)
+            if only_missing and values:
+                continue
+            for v in getattr(source, name):
+                if v not in values:
+                    values.append(v)
 
     def _distribute_headers(self, segs):
         """"black shoes under 3000, ankle boots or trainers": a group word ("shoes") followed by

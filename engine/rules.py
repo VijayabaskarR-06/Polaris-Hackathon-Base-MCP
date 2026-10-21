@@ -80,6 +80,18 @@ REQUIRED_SECTIONS = {'H&M+', 'Mama'}
 # Gifts for little ones: the adult gift list (wallets, watches) has nothing for them.
 CHILD_GIFT_TYPES = ['Giftbox', 'Soft Toys', 'Bodysuit', 'Garment Set', 'Sleeping sack', 'Bootie', 'Hat/beanie',
                     'Socks', 'Pyjama set', 'Dress']
+# Verbs of services and actions the shop does not sell ("book a flight", "order pizza", "track my
+# order"). They only count when no product type is named ("order a black dress" is shopping).
+SERVICE_VERBS = {'book', 'booking', 'reserve', 'reservation', 'rent', 'rental', 'hire', 'cancel', 'refund',
+                 'deliver', 'delivery', 'download', 'install', 'subscribe', 'schedule', 'cook', 'bake', 'fix',
+                 'repair', 'calculate', 'translate', 'convert', 'stream', 'invest', 'pay', 'order', 'track',
+                 'recipe', 'weather', 'news', 'score', 'lyrics', 'directions', 'appointment'}
+QUESTION_RE = re.compile(r"^\s*(?:how|what|why|when|where|who|which|whats|what's|is|are|do|does|did|can|could|"
+                         r"will|would|should)\b")
+PET_TYPES = {'Dog Wear', 'Dog wear'}
+# Words whose singular is an adjective while the plural names a garment.
+ADJECTIVE_FORMS = {'short'}
+IDIOM_RE = re.compile(r"\b(?:over the top|on top of|top notch|top-notch|tip top|on top)\b")
 BACK_REFERENCES = {'it', 'them', 'this', 'that', 'these', 'those', 'one', 'it too', 'them too'}
 # "unicorn stuff", "cute things": the object is "clothing in general".
 PLACEHOLDER_OBJECTS = {'stuff', 'thing', 'item', 'clothe', 'clothing', 'garment', 'apparel', 'gear', 'kit'}
@@ -203,6 +215,8 @@ class Signals:
     corrected: dict = field(default_factory=dict)
     soft_target: float = None
     context: str = ''
+    service: bool = False
+    question: bool = False
 
 
 def _mask_spans(text, spans):
@@ -221,10 +235,11 @@ class RulePlanner:
     # ----- segment analysis ----------------------------------------------
     def analyze(self, seg, signals):
         """Fill a Segment from its text using the lexicon matcher."""
-        tokens = []
-        for raw in raw_tokens(seg.text):
+        tokens, raws = [], []
+        for raw in raw_tokens(IDIOM_RE.sub(' ', seg.text)):
             if len(raw) < 2:
                 continue
+            raws.append(raw)
             t = stem(raw)
             fixed = self.vocab.correction(raw, t)
             if fixed:
@@ -251,7 +266,17 @@ class RulePlanner:
                 seg.content_words.append((start, ' '.join(phrase)))
             late_type = (start > prep_at and (seg.types or seg.group_types)
                          and any(k in ('type', 'type_group') for k, _ in entries))
-            if idx in modifiers or late_type:
+            # "too short", "a short dress": singular "short" is a length, only "shorts" is the garment.
+            adjective = end - start == 1 and raws[start] in ADJECTIVE_FORMS and 'type' in kinds
+            pet = late_type and any(t in PET_TYPES for k, payload in entries if k == 'type' for t in payload[0])
+            if pet:
+                # "a warm jumper for my dog": the wearer is a pet, so the item is pet clothing
+                # and the human garment word describes it.
+                seg.descriptors += [w for w in seg.type_words if w not in seg.descriptors]
+                seg.types, seg.primary_types, seg.type_words = [], [], []
+                seg.type_keywords, seg.match_terms, seg.needs_keyword = [], [], False
+                late_type = False
+            if idx in modifiers or late_type or adjective:
                 # "shirt dress": the modifier noun describes the head item; "boots with a heel":
                 # once the item is named, a type after a preposition describes it.
                 seg.descriptors.append(' '.join(phrase))
@@ -395,6 +420,9 @@ class RulePlanner:
         text = self.vocab.translate_text(text)
         if INJECTION_RE.search(text):
             signals.injection = True
+        words = {stem(t) for t in raw_tokens(text)}
+        signals.service = bool(words & SERVICE_VERBS)
+        signals.question = bool(QUESTION_RE.match(text))
         for age_match in AGE_RE.finditer(text):
             age = int(age_match.group(1) or age_match.group(3))
             unit = age_match.group(2) or 'year'

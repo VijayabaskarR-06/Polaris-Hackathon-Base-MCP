@@ -220,6 +220,11 @@ class SemanticEngine:
             return self.abstained(key, plan, 'nonsense')
         if signals.brands:
             return self.abstained(key, plan, 'brand not in catalog: ' + ','.join(signals.brands))
+        explicit_types = any(c.product_types and not getattr(c, 'occasion_types', False) for c in plan.choices)
+        if not explicit_types and signals.service:
+            return self.abstained(key, plan, 'service request, no product named')
+        if not explicit_types and signals.question and not any(getattr(c, 'occasion', False) for c in plan.choices):
+            return self.abstained(key, plan, 'question without a product or occasion')
         heads = [getattr(c, 'head', None) for c in plan.choices]
         if heads and all(h == 'non_catalog' for h in heads):
             return self.abstained(key, plan, 'not sold: ' + ','.join(signals.non_catalog))

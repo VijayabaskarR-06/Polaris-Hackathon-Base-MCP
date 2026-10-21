@@ -413,6 +413,47 @@ def choose_field_sorted_set(cands, sort_key, k=10, min_gain=0.5):
     return chosen
 
 
+def choose_mixed_field_sorted_set(cands, n_choices, sort_key, k=10, min_gain=0.5):
+    """choose_field_sorted_set for a mixed query: every choice keeps a share of the first k.
+
+    A plain field sort can fill the first k with one choice (every cheap T-shirt before any
+    jeans) while coverage counts each requested choice. Each choice picks its own best set for
+    its share of the k slots (split evenly; a choice with too few candidates passes its unused
+    slots on); the union is shown in sort order, then every other eligible candidate that sorts
+    after the last one shown, so the whole list stays sorted.
+    """
+    eligible = _unique([c for c in cands if expected_gain(c.probs) >= min_gain])
+    groups = {}
+    for c in eligible:
+        groups.setdefault(c.choice, []).append(c)
+    present = sorted(groups)
+    if len(present) <= 1:
+        return choose_field_sorted_set(cands, sort_key, k=k, min_gain=min_gain)
+    share = {g: 0 for g in present}
+    left = k
+    while left > 0:
+        open_groups = [g for g in present if share[g] < len(groups[g])]
+        if not open_groups:
+            break
+        for g in open_groups:
+            if left == 0:
+                break
+            share[g] += 1
+            left -= 1
+    top = []
+    for g in present:
+        if share[g]:
+            top += choose_field_sorted_set(groups[g], sort_key, k=share[g], min_gain=min_gain)[:share[g]]
+    top = _unique(sorted(top, key=lambda c: (sort_key(c), c.pid)))
+    if not top:
+        return []
+    last = (sort_key(top[-1]), top[-1].pid)
+    shown = {c.pid for c in top}
+    rest = [c for c in sorted(eligible, key=lambda c: (sort_key(c), c.pid))
+            if c.pid not in shown and (sort_key(c), c.pid) > last]
+    return top + rest
+
+
 # ---------------------------------------------------------------------------
 # Recommendations
 

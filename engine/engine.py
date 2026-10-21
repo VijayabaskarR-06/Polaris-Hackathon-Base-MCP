@@ -44,7 +44,9 @@ def state_key(args):
     filters = {}
     for name, value in sorted(args['filters'].items()):
         filters[name] = value.strip().casefold() if isinstance(value, str) else float(value)
-    return json.dumps({'q': ' '.join(args['query'].split()).casefold(), 'f': filters}, sort_keys=True)
+    # The plan reads include_recommendations ("a shirt with trousers" is two choices without them).
+    return json.dumps({'q': ' '.join(args['query'].split()).casefold(), 'f': filters,
+                       'r': bool(args.get('include_recommendations'))}, sort_keys=True)
 
 
 def terms_of(words):
@@ -177,7 +179,7 @@ class SemanticEngine:
     # ----- state -----------------------------------------------------------
     def compute(self, args, key, t0):
         query, filters = args['query'], args['filters']
-        rule_plan = self.rules.plan(query)
+        rule_plan = self.rules.plan(query, recs=bool(args.get('include_recommendations')))
         state = None
         if self.planner is not None:
             try:
@@ -472,7 +474,11 @@ class SemanticEngine:
                     order.reverse()
             else:
                 rank = self.index.order_rank[key]
-                chosen = points.choose_field_sorted_set(state.cands, sort_key=lambda c: int(rank[c.pid]), k=10)
+                if state.n_choices > 1:
+                    chosen = points.choose_mixed_field_sorted_set(state.cands, state.n_choices,
+                                                                  sort_key=lambda c: int(rank[c.pid]), k=10)
+                else:
+                    chosen = points.choose_field_sorted_set(state.cands, sort_key=lambda c: int(rank[c.pid]), k=10)
                 order = [c.pid for c in chosen]
             state.orderings[key] = order
             return order

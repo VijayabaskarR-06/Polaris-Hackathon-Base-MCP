@@ -89,12 +89,14 @@ def tokenize(text):
 NUMBER_K = re.compile(r'(\d+(?:\.\d+)?)\s*k\b')
 NUMBER_COMMA = re.compile(r'(?<=\d),(?=\d{3}\b)')
 CURRENCY = re.compile(r'₹|\brs\.?(?=\s|\d|$)|\brupees?\b|\binr\b|\binr\.')
+WITH_ABBREVIATION = re.compile(r'\bw/(o\b)?')    # "top w/ matching bottoms", "dress w/o sleeves"
 
 
 def normalize_query(query):
     """Lowercase, fold accents, currency to " inr ", "2,000" -> "2000", "2k" -> "2000"."""
     text = query.replace('₹', ' inr ')
     text = fold_accents(text).lower()
+    text = WITH_ABBREVIATION.sub(lambda m: ' without ' if m.group(1) else ' with ', text)
     text = CURRENCY.sub(' inr ', text)
     text = NUMBER_COMMA.sub('', text)
     text = NUMBER_K.sub(lambda m: str(int(float(m.group(1)) * 1000)), text)

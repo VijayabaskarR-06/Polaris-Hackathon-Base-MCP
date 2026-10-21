@@ -1,7 +1,7 @@
 """Rule planner: budgets, colours, audience, mixed choices, complements, nonsense."""
 import unittest
 
-from engine.rules import parse_budgets, rule_plan, signals_of
+from engine.rules import RulePlanner, parse_budgets, rule_plan, signals_of
 from engine.text import normalize_query
 from tests.shared import catalog
 
@@ -23,6 +23,7 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(budgets('jeans for ₹999'), [(None, 999)])
         self.assertEqual(budgets('kurta 2000 se kam'), [(None, 2000)])
         self.assertEqual(budgets('dress 1.5k max'), [(None, 1500)])
+        self.assertEqual(budgets('t-shirts and shorts, nothing over 800'), [(None, 800)])
 
     def test_not_budgets(self):
         self.assertEqual(budgets('jeans for a 5 year old'), [])
@@ -150,6 +151,79 @@ class PlanTests(unittest.TestCase):
         self.assertIn('Red', plan.choices[0].colors)
         self.assertIn('Trousers', self.plan('लड़कों के लिए नीली जींस').choices[0].product_types)
         self.assertEqual(self.plan('लड़कों के लिए नीली जींस').audience_group, 'boys')
+
+    def test_owned_item_is_context(self):
+        plan = self.plan('I bought a navy blazer, find me a tie that goes with it')
+        self.assertEqual([c.product_types for c in plan.choices], [['Tie']])
+        self.assertIsNone(plan.complement)
+        self.assertEqual(plan.context_types[:1], ['Blazer'])
+        plan = self.plan('My son has new navy swim shorts for our beach holiday. Can you find him a sun hat to go with them?')
+        self.assertEqual(plan.audience_group, 'boys')
+        self.assertTrue(all('hat' in t.lower() for c in plan.choices for t in c.product_types))
+        plan = self.plan("My baby girl's white christening dress is all sorted. What headband would go nicely with it?")
+        self.assertNotIn('Dress', [t for c in plan.choices for t in c.product_types])
+        plan = self.plan('I have black jeans and white sneakers, looking for a top to go with them')
+        self.assertEqual(len(plan.choices), 1)
+        self.assertIn('Top', plan.choices[0].product_types)
+        # Possession of an occasion is not an owned item.
+        self.assertEqual(len(self.plan('I have a wedding to attend, need a dress and shoes').choices), 2)
+
+    def test_context_sets_wearer_and_pairings(self):
+        plan = self.plan('What shoes go well with a red dress?')
+        self.assertEqual(plan.audience_group, 'women')
+        self.assertTrue(set(plan.choices[0].product_types) <= {'Heeled sandals', 'Pumps', 'Sandals', 'Ballerinas'})
+        self.assertFalse(plan.choices[0].colors)
+        plan = self.plan('something to wear with white jeans')
+        self.assertGreaterEqual(len(plan.choices), 2)
+        self.assertIn('T-shirt', [t for c in plan.choices for t in c.product_types])
+        self.assertFalse(any(c.colors for c in plan.choices))
+        plan = self.plan('accessories for a little black dress')
+        self.assertNotIn('Other accessories', plan.choices[0].product_types)
+        self.assertFalse(plan.choices[0].colors)
+
+    def test_more_complement_markers(self):
+        cases = {
+            'a winter coat and gloves to match': 'Gloves',
+            "white formal shirt for hubby's office + matching tie, both under 1500": 'Tie',
+            'need a blck party dress under rs 2500 n a matcing clutch to go with it pls': 'Bag',
+            'summer dress, plus sandals to complete the look': 'Sandals',
+            "men's formal shirt with a tie that matches": 'Tie',
+            'a bikini top w/ the matching bottoms': 'Swimwear bottom',
+        }
+        for query, kind in cases.items():
+            with self.subTest(query=query):
+                plan = self.plan(query)
+                self.assertEqual(len(plan.choices), 1)
+                self.assertIsNotNone(plan.complement)
+                if kind != 'Swimwear bottom':
+                    self.assertIn(kind, plan.complement.product_types)
+        plan = self.plan('warm coat for women under 5000 + scarf n gloves to go with it')
+        self.assertTrue({'Scarf', 'Gloves'} <= set(plan.complement.product_types))
+        plan = self.plan('black jeans and a white tee and a belt to go with them')
+        self.assertEqual(len(plan.choices), 2)
+        self.assertEqual(plan.complement.product_types, ['Belt'])
+
+    def test_bare_with_depends_on_recommendations(self):
+        planner = RulePlanner(self.vocab)
+        off = planner.plan('a white shirt with black trousers', recs=False)
+        self.assertEqual(len(off.choices), 2)
+        self.assertIsNone(off.complement)
+        on = planner.plan('a white shirt with black trousers', recs=True)
+        self.assertEqual(len(on.choices), 1)
+        self.assertIn('Trousers', on.complement.product_types)
+        # An explicit marker stays a complement either way; a belt after "with" describes the item.
+        self.assertIsNotNone(planner.plan('a dress with a matching bag', recs=False).complement)
+        self.assertEqual(len(planner.plan('a coat with a belt', recs=False).choices), 1)
+
+    def test_splitting_words(self):
+        self.assertEqual(len(self.plan('kids raincoat n wellies').choices), 2)
+        self.assertEqual(len(self.plan('white sneakers along with a denim jacket').choices), 2)
+        self.assertEqual(len(self.plan('need a bikini and a sarong. sunnies too').choices), 3)
+
+    def test_unsold_complement(self):
+        for query in ('white shirt with a matching cummerbund', 'yoga leggings and a yoga mat to go with them'):
+            with self.subTest(query=query):
+                self.assertTrue(getattr(self.plan(query), 'complement_missing', False))
 
     def test_brand_and_non_catalog_signals(self):
         self.assertTrue(signals_of(self.plan('nike air max shoes')).brands)

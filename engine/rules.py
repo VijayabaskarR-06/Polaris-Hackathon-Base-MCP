@@ -3,6 +3,7 @@
 It is the fallback when the LLM planner is unavailable or late, the racing
 path while it runs, and the safety net for budgets and colours it misses.
 """
+import copy
 import re
 from dataclasses import dataclass, field
 
@@ -15,6 +16,7 @@ TAIL = r'(?:\s*inr)?(?:\s*/-)?'
 MAX_RES = [re.compile(p) for p in (
     rf'\b(?:under|below|beneath|less than|lesser than|lower than|up ?to|upto|till|within|max(?:imum)?'
     rf'|not more than|no more than|not over|cheaper than|at most|not exceeding|no higher than|for less than'
+    rf'|nothing (?:over|above|more than|beyond|pricier than|costlier than)|none over|not above'
     rf'|for under|budget(?:\s+(?:of|is|around|upto|up to))?|in (?:a |the |my )?budget of|a budget of|spend(?:ing)?'
     rf'(?:\s+(?:of|upto|up to|max))?)\s*(?:of\s*)?(?:is\s*)?(?::\s*)?{CUR}{NUM}{TAIL}',
     rf'(?:<=?|≤)\s*{CUR}{NUM}{TAIL}',
@@ -34,21 +36,60 @@ BARE_RE = re.compile(rf'(?:\b(?:for|at|@|priced at|costing|cost|price)\s*{CUR}{N
 EACH_RE = re.compile(r'\b(?:each|per item|per piece|apiece|a piece|har ek|each one|both|dono|all of them|all three)\b')
 
 # "X with a matching Y": Y is a requested accompanying item (recommendations).
+# Shoppers misspell it often ("matcing", "matchng").
+MATCH_WORDS = (r'(?:matching|matchng|matcing|maching|matchin|matchig|mathcing|matchinng|machting|matchimg'
+               r'|coordinating|co-ordinating|complementary|complimentary|coordinated|co-ordinated|harmonising'
+               r'|harmonizing)')
 COMPLEMENT_RE = re.compile(
-    r'\b(?:(?:with|and|plus|along with|together with)\s+(?:a |an |some |the |pair of |a pair of )?'
-    r'(?:matching|coordinating|co-ordinating|complementary|complimentary|coordinated|co-ordinated|harmonising'
-    r'|harmonizing)\b'
-    r'|(?:with|and)\s+(?:a |an |some )?(?:(?:nice|cute|good|suitable) )?accessor(?:y|ies) (?:to match|for it|for that)'
-    r'|accessori[sz]e (?:it )?with|complete (?:the|my) look with)')
-# "a bag to match": the complement follows "with" and precedes "to match".
-WITH_TO_MATCH_RE = re.compile(r'\bwith\s+(?:a |an |some )?(.+?)\s+to match\b')
-# "X to go with my Y": the shopper wants X; Y is context they already own.
+    rf'(?:\b(?:with|and|plus|along with|together with|n)\b|[+&,]|(?<=[.!?])|(?<=[.!?]\s))\s*(?:it\s+|them\s+)?'
+    rf'(?:a |an |some |the |pair of |a pair of )?(?:(?:nice|cute|good|suitable) )?{MATCH_WORDS}\b'
+    r'|\b(?:with|and)\s+(?:a |an |some )?(?:(?:nice|cute|good|suitable) )?accessor(?:y|ies) (?:to match|for it|for that)'
+    r'|\baccessori[sz]e (?:it )?with|\bcomplete (?:the|my) look with')
+MATCH_WORD_RE = re.compile(rf'match|{MATCH_WORDS}|coordinat')
+# "a bag to match", "con aretes a juego" (with earrings matching): the complement sits between.
+WITH_TO_MATCH_RE = re.compile(rf'\bwith\s+(?:a |an |some |the )?(.+?)\s+(?:to match|{MATCH_WORDS}|that match(?:es)?)\b')
+# "X to go with my Y": the shopper wants X; Y is context they already own. With nothing (or only
+# "it"/"them") after the marker, X itself is the accompanying item: "a coat and gloves to match".
 CONTEXT_RE = re.compile(
-    r'\b(?:to go with|that goes? with|which goes? with|that would go with|goes? well with|to wear with|to pair with'
-    r'|that pairs? with|to match|that matches|matching (?=my |our |her |his )|for (?=my |our )(?:\w+ ){0,2}'
+    r'\b(?:go(?:es)?\s+(?:well\s+|nicely\s+|best\s+|great\s+|good\s+)?with|wear\s+(?:it\s+|them\s+)?with'
+    r'|(?:to\s+)?pairs?\s+(?:it\s+|them\s+)?(?:well\s+|nicely\s+)?with'
+    r'|(?:to\s+)?(?:style|team|combine|coordinate)\s+(?:it\s+|them\s+)?with'
+    r'|(?:to|that|which|would|will|can)\s+match(?:es)?\b|(?:to|that|which|would|will)\s+complements?\b'
+    r'|(?:to\s+)?(?:complete|finish(?:\s+off)?|round\s+(?:off|out))\s+(?:the|my|this|her|his|your)\s+(?:look|outfit)'
+    r'|matching (?=my |our |her |his )|for (?=my |our )(?:\w+ ){0,2}'
     r'(?:dress|outfit|suit|saree|sari|lehenga|gown|jeans|jacket))')
+CONTEXT_FILLER_RE = re.compile(r'(?:\b(?:to|that|which|what|would|will|can|could|might|else|really|i|you|we)\s+)+$')
+# "a black dress, and suggest a bag": what follows the verb accompanies the item named before it.
+SUGGEST_RE = re.compile(r'\b(?:suggest|recommend)(?:s|ed|ing)?\b')
+# "accessories for a little black dress": an accessory for a garment the shopper already has.
+FOR_DET_RE = re.compile(r'\bfor\s+(?:a|an|the|this|that|my|our|her|his|your)\s+')
+ACCESSORY_CATEGORIES = {'Accessories', 'Bags', 'Shoes', 'Socks & Tights'}
+GARMENT_CATEGORIES = {'Garment Full body', 'Garment Upper body', 'Garment Lower body', 'Swimwear', 'Nightwear'}
+# Items that a bare "with" usually describes ("a coat with a belt" is a belted coat).
+WITH_FEATURE_TYPES = {'Belt'}
 SPLIT_RE = re.compile(r'\band\b|&|\bplus\b(?![\s-]*sized?\b)|\bas well as\b|,|/|;|\+|\bor\b|\balso\b|\baur\b'
-                      r'|\bya\b|\bthen\b')
+                      r'|\bya\b|\bthen\b|\bn\b|\balong\s*with\b|\btogether\s+with\b|\balongside\b'
+                      r'|\bin addition to\b|(?<=\w)[.!?]+(?=\s|$)')
+# "I bought a navy blazer, find me a tie to go with it": the bought item is context, the tie is
+# what they want. Possession attached to the first item, followed by a request for another one.
+OWN_RE = re.compile(
+    r"\bi(?:'ve|'d|\s+have|\s+had)?\s+(?:just\s+|recently\s+|finally\s+|already\s+|also\s+)*"
+    r"(?:bought|got|gotten|purchased|picked up|found|ordered|own|received|inherited)\b"
+    r"|(?:^|(?<=[.!?,]\s))(?:just\s+|recently\s+|finally\s+|already\s+)*(?:bought|got|picked up|purchased|found)\b"
+    r"|\bgot (?:myself|herself|himself|ourselves)\b|\btreated (?:myself|herself|himself|her|him) to\b"
+    r"|\b(?:i'm|i am|he's|she's|he is|she is|they are|they're|is|are|am)\s+(?:already\s+)?(?:wearing|going to wear|planning to wear)\b"
+    r"|\balready\s+(?:have|has|own|owns|bought|got|picked)\b"
+    r"|\b(?:he|she|they|my\s+\w+|our\s+\w+)\s+(?:already\s+|just\s+)?(?:has|have|owns|got|bought)\b(?!\s+to\b)"
+    r"|\bi\s+have\b(?!\s+to\b)|\bi've\s+got\b|\bwe\s+have\b(?!\s+to\b)"
+    r"|\b(?:is|are)\s+(?:all\s+|already\s+)?(?:sorted|done|ready|bought|picked|chosen|set|decided|finali[sz]ed"
+    r"|organi[sz]ed)\b")
+REQUEST_RE = re.compile(
+    r"\b(?:need|needs|want|wants|looking for|look for|find|suggest|recommend|show|get me|get her|get him|help me"
+    r"|any|do you have|got any|which|what|could you|can you|would like|i'd like|love|dikhao|dikhaiye|chahiye"
+    r"|chaiye|batao)\b")
+BACK_REFERENCE_WORDS = {'it', 'them', 'this', 'that', 'these', 'those', 'one', 'ones', 'too', 'pls', 'please',
+                        'plz', 'well', 'also', 'nicely', 'perfectly', 'great', 'thanks', 'thank', 'you', 'if',
+                        'possible', 'poss', 'have', 'any', 'em'}
 INJECTION_RE = re.compile(
     r'ignore (?:all |any |the |your |previous |prior |above |earlier )*(?:instructions|rules|prompts?|guidelines)'
     r'|system prompt|developer (?:message|mode)|jailbreak|you are now|act as (?:a|an|the)\b|pretend (?:to be|you)'
@@ -86,7 +127,10 @@ CHILD_GIFT_TYPES = ['Giftbox', 'Soft Toys', 'Bodysuit', 'Garment Set', 'Sleeping
 SERVICE_VERBS = {'book', 'booking', 'reserve', 'reservation', 'rent', 'rental', 'hire', 'cancel', 'refund',
                  'deliver', 'delivery', 'download', 'install', 'subscribe', 'schedule', 'cook', 'bake', 'fix',
                  'repair', 'calculate', 'translate', 'convert', 'stream', 'invest', 'pay', 'order', 'track',
-                 'recipe', 'weather', 'news', 'score', 'lyrics', 'directions', 'appointment'}
+                 'recipe', 'news', 'score', 'lyrics', 'directions', 'appointment'}
+# Asking for the weather is a service; dressing for it ("something for very hot weather") is shopping.
+FORECAST_RE = re.compile(r"\b(?:weather|forecast|temperature)\s+(?:today|tomorrow|tonight|this week|now|in|at)\b"
+                         r"|\b(?:how|what)(?:'s|s| is| will be)\s+the\s+weather\b")
 QUESTION_RE = re.compile(r"^\s*(?:how|what|why|when|where|who|which|whats|what's|is|are|do|does|did|can|could|"
                          r"will|would|should)\b")
 PET_TYPES = {'Dog Wear', 'Dog wear'}
@@ -327,12 +371,15 @@ class RulePlanner:
                     # "jeans" -> Trousers: a trouser only counts as jeans if its text says so.
                     type_terms = {t for name in types for t in tokenize(name.replace('/', ' '))}
                     if types and not set(phrase) <= type_terms:
-                        seg.needs_keyword = True
                         specific = [t for t in phrase if t not in type_terms and t not in GENERIC_GARMENT_WORDS]
                         for keyword in keywords:
                             specific += [t for t in tokenize(keyword) if t not in GENERIC_GARMENT_WORDS
                                          and t not in type_terms]
-                        seg.match_terms += [t for t in dict.fromkeys(specific) if t not in seg.match_terms]
+                        # A word no product uses ("neckless", an alias typo) cannot be required.
+                        specific = [t for t in dict.fromkeys(specific) if self.vocab.bm25.df(t) > 0]
+                        if specific:
+                            seg.needs_keyword = True
+                            seg.match_terms += [t for t in specific if t not in seg.match_terms]
                     seg.type_words.append(' '.join(phrase))
                     seg.type_keywords += [k for k in keywords if k not in seg.type_keywords]
                 elif kind == 'type_group':
@@ -420,14 +467,17 @@ class RulePlanner:
         return before[-1]
 
     # ----- plan assembly -------------------------------------------------
-    def plan(self, query):
+    def plan(self, query, recs=True):
+        """recs: include_recommendations. With recommendations off, a bare "with" joining two
+        kinds of item ("a white shirt with black trousers") names two choices, as the brief
+        asks for every item not explicitly requested as an accompaniment."""
         signals = Signals()
         text = normalize_query(self.vocab.native_to_english(query))
         text = self.vocab.translate_text(text)
         if INJECTION_RE.search(text):
             signals.injection = True
         words = {stem(t) for t in raw_tokens(text)}
-        signals.service = bool(words & SERVICE_VERBS)
+        signals.service = bool(words & SERVICE_VERBS) or bool(FORECAST_RE.search(text))
         signals.question = bool(QUESTION_RE.match(text))
         for age_match in AGE_RE.finditer(text):
             age = int(age_match.group(1) or age_match.group(3))
@@ -447,27 +497,61 @@ class RulePlanner:
         clean = _mask_spans(text, budget_spans)
 
         main_end, comp_start, comp_end = len(clean), None, len(clean)
-        context_start = None
+        matching = False
         m = COMPLEMENT_RE.search(clean)
         wm = WITH_TO_MATCH_RE.search(clean)
         if m:
             main_end, comp_start = m.start(), m.end()
+            matching = bool(MATCH_WORD_RE.search(m.group(0)))
         elif wm:
             main_end, comp_start, comp_end = wm.start(), wm.start(1), wm.end(1)
-        cm = CONTEXT_RE.search(clean[:main_end])
+            matching = True
+        cm = CONTEXT_RE.search(clean[:main_end]) or self._for_context(clean[:main_end])
         back_reference = False
+        backref_at = None
+        context = None
         if cm:
-            context_start = cm.start()
-            signals.context = clean[cm.end():main_end].strip()
-            # "a tie to go with it", "socks to wear with them": the item before the marker
-            # accompanies the main item; nothing new is named after it.
-            first_clause = re.split(r'[,.;!?]', signals.context)[0]
-            back_reference = ' '.join(first_clause.split()) in BACK_REFERENCES
-            main_end = context_start
+            # "earrings that would go with ...": the filler before the marker belongs to it.
+            filler = CONTEXT_FILLER_RE.search(clean[:cm.start()])
+            context_start = filler.start() if filler else cm.start()
+            clause = re.split(r'[,.;!?]|\s[-\u2013]\s', clean[cm.end():main_end])[0]
+            clause_end = cm.end() + len(clause)
+            signals.context = ' '.join(clause.split())
+            # "a tie to go with it", "socks to wear with them pls", "a coat and gloves to match": the
+            # item before the marker accompanies the main item; nothing new is named after it.
+            words = [w for w in raw_tokens(clause) if stem(w) not in self.vocab.stopwords]
+            back_reference = all(w in BACK_REFERENCE_WORDS for w in words)
+            matching = matching or bool(MATCH_WORD_RE.search(cm.group(0)))
+            if back_reference:
+                backref_at = context_start
+            else:
+                context = self.analyze(Segment(cm.end(), clause_end, clause), Signals())
+            # The marker and its clause are not wanted items; later sentences still are ("I have
+            # nothing to wear with them. can you show me some navy blouses?").
+            clean = clean[:context_start] + ',' + ' ' * (clause_end - context_start - 1) + clean[clause_end:]
+        own = OWN_RE.search(clean[:main_end])
+        if comp_start is None:
+            for sm in SUGGEST_RE.finditer(clean[:main_end]):
+                if own is not None and own.start() < sm.start():
+                    break          # "I bought a dress, suggest heels": the heels are what they want
+                before = self.analyze(Segment(0, sm.start(), clean[:sm.start()]), Signals())
+                after = self.analyze(Segment(0, 0, clean[sm.end():main_end]), Signals())
+                if before.has_type and after.has_type:
+                    main_end, comp_start, comp_end = sm.start(), sm.end(), main_end
+                    break
         if comp_start is None and (not cm or back_reference):
-            accompany = self._with_item(clean[:main_end])
-            if accompany is not None:
-                main_end, comp_start, comp_end = accompany, accompany + 4, main_end
+            found = self._with_item(clean[:main_end])
+            if found is not None:
+                accompany, after_types = found
+                if own is not None and own.start() < accompany:
+                    # "my husband got a navy suit; surprise him with a red tie": the tie is wanted.
+                    clean = clean[:accompany] + 'and ' + clean[accompany + 4:]
+                elif back_reference or recs:
+                    main_end, comp_start, comp_end = accompany, accompany + 4, main_end
+                elif not set(after_types) <= WITH_FEATURE_TYPES:
+                    # Recommendations off: "with" joins two choices, like "and" (same length, so
+                    # budget spans stay put).
+                    clean = clean[:accompany] + 'and ' + clean[accompany + 4:]
 
         # Split the main part into segments.
         segments, pos = [], 0
@@ -495,10 +579,17 @@ class RulePlanner:
 
         trailing = self._trailing_modifiers(segments)
         alternatives = self._alternatives(main)
-        choices_segs = self._merge(segments)
+        choices_segs = self._merge(segments, main)
         # A budget absorbed into a choice is the same budget, not a second one.
         main_budgets = list({id(b): b for s in segments for b in s.budgets}.values())
         choices_segs = self._distribute_headers(choices_segs)
+        owned = self._owned(choices_segs, own, clean, back_reference, backref_at)
+        if owned:
+            # "I bought a navy blazer, find me a tie to go with it": the blazer is context.
+            for seg in owned:
+                choices_segs.remove(seg)
+                main_budgets = [b for b in main_budgets if all(b is not x for x in seg.budgets)]
+            context, back_reference = owned[0], False
         if len(choices_segs) > 1:
             for mod in trailing:
                 for target in choices_segs:
@@ -509,16 +600,54 @@ class RulePlanner:
                     for target in choices_segs:
                         if target is not source:
                             self._share(target, source, only_missing=True)
-        if back_reference and complement is None and len(choices_segs) >= 2:
-            # "chelsea boots for men, and some socks to wear with them": the last item accompanies.
-            complement = choices_segs.pop()
-            comp_start = complement.start
+        missing_complement = False
+        if back_reference and complement is None:
+            # "chelsea boots for men, and some socks to wear with them": the item just before the
+            # marker accompanies the ones named before it.
+            before = [x for x in choices_segs if backref_at is None or x.start < backref_at]
+            if len(before) >= 2:
+                # "a warm coat + scarf n gloves to go with it": items joined by and/n/& right before
+                # the marker accompany together; a comma, "+" or "plus" ends the run.
+                run = [before[-1]]
+                for prev in reversed(before[:-1]):
+                    if not re.fullmatch(r'\s*(?:and|n|&)\s*', main[prev.end:run[0].start]):
+                        break
+                    run.insert(0, prev)
+                if run[0] is before[0]:
+                    run = [before[-1]]     # "jeans and a tee and a belt to go with them": just the belt
+                complement = run[0]
+                for extra in run[1:]:
+                    self._absorb(complement, extra)
+                for seg in run:
+                    choices_segs.remove(seg)
+                comp_start = complement.start
+                # "..., and cufflinks to match - max 1000 for the cufflinks": a later mention of the
+                # accompaniment refines it rather than naming a new choice.
+                for later in [x for x in choices_segs if backref_at is not None and x.start > backref_at
+                              and x.types and set(x.types) <= set(complement.types)]:
+                    self._absorb(complement, later)
+                    choices_segs.remove(later)
+            else:
+                # "yoga leggings and a yoga mat to go with them": the accompaniment is not sold.
+                last = [x for x in segments if backref_at is None or x.end <= backref_at + 1]
+                if len(last) >= 2 and not last[-1].has_type and last[-1].non_catalog:
+                    missing_complement = True
         if len(choices_segs) > 1 and (each or len(main_budgets) == 1):
             for s in choices_segs:
                 s.budgets = list(main_budgets)
         if complement is not None and not complement.budgets and main_budgets and (each or len(main_budgets) == 1):
             complement.budgets = list(main_budgets)
 
+        context_types = []
+        if context is not None:
+            # The wearer of the owned item wears what goes with it: "earrings to go with my wife's
+            # dress", "shoes to match my red dress" (a dress is women's wear).
+            signals.audience |= context.audience
+            context_types = list(context.primary_types or context.types or context.group_types)
+            if not signals.audience:
+                genders = {self.vocab.type_gender.get(t) for t in (context.primary_types or context.types)}
+                if len(genders) == 1 and None not in genders:
+                    signals.audience.add(genders.pop())
         if 'girls' in signals.audience and ADULT_CONTEXT_RE.search(text) and not CHILD_CONTEXT_RE.search(text):
             signals.audience.discard('girls')
             signals.audience.add('women')
@@ -537,30 +666,85 @@ class RulePlanner:
             plan.choices.append(choice)
         if len(per_choice) > 1:
             plan.audience_group = None
+        if context_types:
+            self._fit_context(plan, context_types, signals)
+        plan.matching = matching
         if complement is not None and (complement.has_type or complement.descriptors):
             plan.complement = self._choice(complement, signals)
-        signals.unknown = [w for s in segments for w in s.unknown]
-        signals.brands = [w for s in segments for w in s.brands]
-        signals.non_catalog = [w for s in segments for w in s.non_catalog]
-        signals.sections = [x for s in segments for x in s.sections]
+        elif missing_complement or (complement is not None and (complement.unknown or complement.non_catalog)):
+            # "a shirt with a matching cummerbund": the accompanying item is not sold, and no
+            # recommendation beats a forced one.
+            plan.complement_missing = True
+        # What the shopper owns ("I bought a Zara jacket") is not what they ask for.
+        asked = segments if owned is None else choices_segs + ([complement] if complement is not None else [])
+        signals.unknown = [w for s in asked for w in s.unknown]
+        signals.brands = [w for s in asked for w in s.brands]
+        signals.non_catalog = [w for s in asked for w in s.non_catalog]
+        signals.sections = [x for s in asked for x in s.sections]
         plan.kind = self._kind(plan, segments, signals)
         plan.notes.append(signals)
         return plan
 
     def _with_item(self, text):
-        """Position of a bare "with" that introduces a separate product ("black dress with gold
-        earrings"), or None. "dress with pockets" is a feature, not an accompanying item."""
+        """(position, item types) of a bare "with" that introduces a separate product ("black
+        dress with gold earrings"), or None. "dress with pockets" is a feature, not an item."""
         for w in re.finditer(r'\bwith\b', text):
+            if re.search(r'\b(?:along|together)\s*$', text[:w.start()]):
+                continue          # "along with" joins two choices
             before = self.analyze(Segment(0, w.start(), text[:w.start()]), Signals())
-            after = self.analyze(Segment(0, 0, text[w.end():]), Signals())
+            after = self.analyze(Segment(0, 0, re.split(r'[,.;!?]', text[w.end():])[0]), Signals())
             if (before.has_type and after.types and self.head_kind(after, after.prep_at) == 'type'
                     and not set(after.types) & set(before.types + before.group_types)
                     and not self.vocab.categories_of(after.types) & self.vocab.categories_of(
                         before.types + before.group_types)):
                 # "dress with gold earrings": another category is an accompanying item;
                 # "boots with a heel" stays within shoes, so the heel is a feature.
-                return w.start()
+                return w.start(), list(after.types)
         return None
+
+    def _for_context(self, text):
+        """"accessories for a little black dress": a span marking the garment the accessory is
+        for (context the shopper already has), or None. "a bag for my mum" names no garment."""
+        for m in FOR_DET_RE.finditer(text):
+            before = self.analyze(Segment(0, m.start(), text[:m.start()]), Signals())
+            head = before.types or before.group_types
+            if not head or not self.vocab.categories_of(head) <= ACCESSORY_CATEGORIES:
+                continue
+            after = self.analyze(Segment(0, 0, re.split(r'[,.;!?]', text[m.end():])[0]), Signals())
+            if (after.types and self.vocab.categories_of(after.types) & GARMENT_CATEGORIES
+                    and not set(after.types) & set(head)):
+                return m
+        return None
+
+    def _fit_context(self, plan, context_types, signals):
+        """Shape the wanted items by the item the shopper already has.
+
+        A broad word ("shoes", "accessories", "jewellery") narrows to what the catalog pairs
+        with that item; a request naming no item at all ("something to wear with white jeans",
+        "what goes with a navy blazer?") asks for exactly those pairings.
+        """
+        plan.context_types = list(context_types)
+        pairs = [t for t in self.vocab.complement_map.get(context_types[0], []) if t not in context_types]
+        if not pairs:
+            return
+        for choice in plan.choices:
+            if getattr(choice, 'from_group', False):
+                narrowed = [t for t in pairs if t in choice.product_types]
+                if narrowed:
+                    choice.product_types, choice.primary_types = narrowed, list(narrowed)
+        if any(c.product_types for c in plan.choices):
+            return
+        base = plan.choices[0] if plan.choices else self._choice(Segment(0, 0, ''), signals)
+        # One choice per pairing, so the list covers tops, shirts and tees rather than whichever
+        # type happens to sort first.
+        plan.choices = []
+        for t in pairs[:4]:
+            choice = copy.copy(base)
+            choice.product_types, choice.primary_types, choice.keywords = [t], [t], []
+            choice.occasion_types, choice.needs_keyword, choice.match_terms = False, False, []
+            choice.head, choice.from_group = 'type', False
+            choice.label = f'{t.lower()} to go with the {context_types[0].lower()}'
+            plan.choices.append(choice)
 
     @staticmethod
     def _trailing_modifiers(segments):
@@ -609,28 +793,70 @@ class RulePlanner:
             out.remove(header)
         return out
 
-    def _merge(self, segments):
-        """Segments without a type word attach to the previous choice (or the next one if first)."""
+    def _merge(self, segments, text=''):
+        """Segments without a type word attach to the previous choice (or the next one if first).
+
+        A bare colour joined by "or" to the next item belongs to it ("a nude or beige handbag").
+        """
         if not segments:
             return []
         typed = [s for s in segments if s.has_type]
         if len(typed) <= 1:
             merged = Segment(segments[0].start, segments[-1].end, ' '.join(s.text for s in segments))
-            for s in segments:
+            # The named item is the head ("a yoga mat and leggings": leggings, not the mat).
+            for s in typed + [s for s in segments if all(s is not t for t in typed)]:
                 self._absorb(merged, s)
             return [merged]
         out, pending = [], []
-        for s in segments:
+        for i, s in enumerate(segments):
+            nxt = segments[i + 1] if i + 1 < len(segments) else None
+            leads = (nxt is not None and nxt.has_type and s.colors and not s.content
+                     and re.search(r'\bor\b|/', text[s.end:nxt.start]))
             if s.has_type:
                 for p in pending:
                     self._absorb(s, p)
                 pending = []
                 out.append(s)
-            elif out:
+            elif out and not leads:
                 self._absorb(out[-1], s)
             else:
                 pending.append(s)
         return out
+
+    @staticmethod
+    def _owned(segs, own, clean, back_reference, backref_at=None):
+        """Choices the shopper already has ("I bought a navy blazer", "my son has swim shorts",
+        "the dress is all sorted. what headband would go with it?") when they ask for something
+        else to go with them; [] when every choice is wanted."""
+        if len(segs) < 2:
+            return []
+        if own is not None:
+            owned = next((s for s in segs if s.start <= own.start() < s.end), None)
+            if owned is not None:
+                # Everything named from the owned item up to the request is what they have: "I have
+                # black jeans and white sneakers, looking for a top to go with them".
+                if back_reference and backref_at is not None:
+                    wanted = [s for s in segs if s.start < backref_at]
+                    if wanted and wanted[-1] is not owned:
+                        return [s for s in segs if owned.start <= s.start and s.end <= wanted[-1].start]
+                request = REQUEST_RE.search(clean, owned.end)
+                if request is not None:
+                    have = [s for s in segs if owned.start <= s.start and s.end <= request.start()]
+                    if len(have) < len(segs):
+                        return have
+                if REQUEST_RE.search(clean[:owned.start]):
+                    return [owned]
+        if back_reference and backref_at is not None:
+            # A later sentence asks for the item that goes "with it": earlier sentences describe
+            # what the shopper has.
+            wanted = [s for s in segs if s.start < backref_at]
+            if len(wanted) >= 2:
+                target = wanted[-1]
+                start = max(clean.rfind(p, 0, target.start) for p in '.!?')
+                earlier = [s for s in segs if s.end <= start]
+                if start >= 0 and earlier and REQUEST_RE.search(clean[start:backref_at]):
+                    return earlier
+        return []
 
     @staticmethod
     def _absorb(target, other):
@@ -735,6 +961,7 @@ class RulePlanner:
         choice.type_words = list(seg.type_words)
         choice.occasion = bool(seg.occasions)
         choice.generic = seg.generic
+        choice.from_group = not seg.types and bool(seg.group_types)
         return choice
 
     @staticmethod

@@ -2637,3 +2637,25 @@ BODY_PART_WORDS = {
     'wrist': (['Watch', 'Bracelet'], ['watch', 'bracelet']), 'waist': (['Belt'], ['belt']),
     'leg': (['Leggings/Tights', 'Trousers', 'Underwear Tights'], ['tights', 'leggings']),
 }
+
+# A dress code is an occasion ("an outfit for a black tie gala"), not a black tie; "dress like a
+# pirate" asks for a costume, not a dress.
+OCCASIONS.update({'black tie': _FORMAL, 'black tie gala': _FORMAL, 'black tie dinner': _FORMAL,
+                  'black tie wedding': _FORMAL})
+TYPE_WORDS['dress like'] = TYPE_WORDS['dress up']
+
+# From the second independent battery: Portuguese/Spanish shopper words, Hinglish possession
+# ("mere paas X hai" = I have X), and accompaniments the catalog does not carry.
+FOREIGN_WORDS.update({'filha': 'daughter', 'filho': 'son', 'minha': 'my', 'meu': 'my', 'anos': 'years',
+                      'saida de praia': 'sarong', 'canga': 'sarong', 'ate': 'up to', 'busco': 'looking for',
+                      'quiero': 'i want', 'necesito': 'i need', 'quero': 'i want', 'preciso': 'i need',
+                      'mere paas': 'i have', 'mere pass': 'i have', 'meri paas': 'i have',
+                      'uske saath': 'with it', 'iske saath': 'with it', 'unke saath': 'with them'})
+TYPE_WORDS['tux'] = TYPE_WORDS['tuxedo']
+NON_CATALOG_WORDS.update({'ski goggles', 'shin pads', 'shin pad', 'shin guards', 'cummerbund', 'yoga mat',
+                          'gym mat', 'exercise mat'})
+TYPE_WORDS.update({'neckless': TYPE_WORDS['necklace'], 'necklase': TYPE_WORDS['necklace'],
+                   'chinos': (['Trousers'], ['chinos']), 'chino': (['Trousers'], ['chinos']),
+                   'chino shorts': (['Shorts'], ['chino', 'shorts'])})
+# Phrases whose words would otherwise name a product ("stocking up for winter" is not stockings).
+STOP_PHRASES = {'stocking up', 'stock up', 'stocking-up', 'stocked up'}

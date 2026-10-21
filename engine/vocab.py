@@ -22,7 +22,7 @@ FOREIGN_FUNCTION_WORDS = {
     'para': 'for', 'por': 'for', 'pour': 'for', 'fur': 'for',
     'con': 'with', 'avec': 'with', 'mit': 'with', 'com': 'with',
     'sin': 'without', 'sans': 'without', 'ohne': 'without', 'senza': 'without', 'sem': 'without',
-    'y': 'and', 'et': 'and', 'und': 'and',
+    'y': 'and', 'et': 'and', 'und': 'and', 'e': 'and',
     'ou': 'or', 'oder': 'or',
     'de': 'of', 'del': 'of', 'des': 'of', 'du': 'of', 'di': 'of', 'da': 'of',
     'en': 'in', 'em': 'in', 'im': 'in', 'nel': 'in', 'al': 'to the', 'au': 'to the', 'aux': 'to the', 'zu': 'to',
@@ -255,6 +255,15 @@ class Vocab:
         }
         for mask in self.group_masks.values():
             mask.flags.writeable = False
+        # Types worn almost only by one adult audience (Dress -> women, Tie -> men): the wearer of
+        # "shoes to go with my red dress" is a woman even though no audience word is said.
+        self.type_gender = {}
+        women, men = self.group_masks['women'], self.group_masks['men']
+        for code, name in enumerate(idx.values['product_type']):
+            of_type = idx.codes['product_type'] == code
+            w, m = int((of_type & women).sum()), int((of_type & men).sum())
+            if w + m >= 20 and (w >= 0.9 * (w + m) or m >= 0.9 * (w + m)):
+                self.type_gender[name] = 'women' if w > m else 'men'
 
     def categories_of(self, types):
         return {self.type_category[t] for t in types if t in self.type_category}
@@ -334,6 +343,8 @@ class Vocab:
             m.add(word, 'non_catalog')
         for word in table('GENERIC_WORDS'):
             m.add(word, 'generic')
+        for phrase in table('STOP_PHRASES'):
+            m.add(phrase, 'stop')
         self.stopwords = {stem(w) for w in table('STOPWORDS') for w in raw_tokens(w)}
         self.foreign = {}
         for word, english in list(table('FOREIGN_WORDS').items()) + list(FOREIGN_FUNCTION_WORDS.items()):

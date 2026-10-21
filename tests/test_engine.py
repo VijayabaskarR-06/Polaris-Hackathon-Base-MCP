@@ -103,6 +103,32 @@ class EngineTests(unittest.TestCase):
         types = {self.products[r['id']]['product_type'] for r in out['results']}
         self.assertNotIn('Bag', types)
 
+    def test_mixed_field_sort_keeps_every_choice(self):
+        for order in ('asc', 'desc'):
+            ids = self.ids(query='black jeans and white t-shirts', sort_by='price', sort_order=order, limit=10)
+            types = {self.products[i]['product_type'] for i in ids}
+            self.assertTrue({'Trousers', 'T-shirt'} <= types, (order, types))
+            prices = [self.products[i]['price']['amount'] for i in ids]
+            self.assertEqual(prices, sorted(prices, reverse=order == 'desc'))
+
+    def test_recommendation_targets(self):
+        out = self.search(query='a bikini top with matching bottoms', include_recommendations=True)
+        self.assertTrue(out['recommendations'])
+        self.assertTrue(all(self.products[r['id']]['product_type'] == 'Swimwear bottom' for r in out['recommendations']))
+        out = self.search(query='white shirt with a matching cummerbund', include_recommendations=True)
+        self.assertTrue(out['results'])
+        self.assertEqual(out['recommendations'], [])
+        out = self.search(query="men's suit with shoes to match", include_recommendations=True)
+        self.assertTrue(out['recommendations'])
+        self.assertTrue(all(self.products[r['id']]['product_type'] != 'Sneakers' for r in out['recommendations']))
+
+    def test_owned_item_is_not_the_result(self):
+        ids = self.ids(query='I bought a navy blazer, find me a tie that goes with it', limit=10)
+        self.assertTrue(ids)
+        self.assertTrue(all(self.products[i]['product_type'] == 'Tie' for i in ids))
+        ids = self.ids(query='earrings to go with my black dress', limit=10)
+        self.assertTrue(all(self.products[i]['product_type'] in ('Earring', 'Earrings') for i in ids))
+
     def test_rule_path_is_fast(self):
         start = time.monotonic()
         self.search(query='blue linen shirt for men under 2500 not white', include_recommendations=True)

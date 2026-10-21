@@ -1,17 +1,19 @@
-"""Baseline catalog search. Improve retrieval here without changing the schemas."""
+"""Catalog search: the exact contract engine for empty queries, the semantic engine otherwise."""
 import json
 import math
 import re
-from functools import lru_cache
 from pathlib import Path
 
 from jsonschema import Draft202012Validator, ValidationError
+
+from engine.index import Index, STRING_FIELDS
 
 ROOT = Path(__file__).resolve().parent
 INPUT_SCHEMA = json.loads((ROOT / 'schemas/input.schema.json').read_text())
 OUTPUT_SCHEMA = json.loads((ROOT / 'schemas/output.schema.json').read_text())
 VALIDATOR = Draft202012Validator(INPUT_SCHEMA)
-STRING_FILTERS = ('category', 'product_type', 'color', 'audience', 'section', 'pattern')
+# Fields the engine never reads; dropping them keeps memory and GC work down.
+UNUSED_FIELDS = ('reviews', 'image_url')
 
 
 def validate_arguments(arguments):
@@ -22,79 +24,106 @@ def validate_arguments(arguments):
     except ValidationError as exc:
         raise ValueError(exc.message) from exc
     filters = arguments.get('filters', {})
-    if any(not filters[k].strip() for k in STRING_FILTERS if k in filters):
+    if any(not filters[k].strip() for k in STRING_FIELDS if k in filters):
         raise ValueError('String filters cannot be blank')
     if filters.get('min_price', 0) > filters.get('max_price', math.inf):
         raise ValueError('min_price cannot exceed max_price')
 
 
-@lru_cache(maxsize=2048)
-def tokens(text):
-    return tuple(re.findall(r'\w+', text.casefold()))
+def normalize_arguments(arguments):
+    """Validated arguments with every default applied and integral floats made ints.
+
+    JSON Schema 2020-12 accepts 3.0 as an integer, so limit/offset/min_review_count
+    may arrive as floats; slicing needs real ints.
+    """
+    filters = dict(arguments.get('filters', {}))
+    if 'min_review_count' in filters:
+        filters['min_review_count'] = int(filters['min_review_count'])
+    return {
+        'query': arguments.get('query', ''),
+        'filters': filters,
+        'sort_by': arguments.get('sort_by', 'relevance'),
+        'sort_order': arguments.get('sort_order', 'desc'),
+        'offset': int(arguments.get('offset', 0)),
+        'limit': int(arguments.get('limit', 10)),
+        'include_recommendations': arguments.get('include_recommendations', False),
+    }
+
+
+def is_empty_query(args):
+    """Only a whitespace-only query is empty; punctuation such as "!!!" is a real (nonsense) query."""
+    return not args['query'].strip()
+
+
+class LexicalEngine:
+    """Starter-style AND token matching, used until the semantic engine is available."""
+
+    def __init__(self, products, index):
+        self.index = index
+        self.words = [set(re.findall(r'\w+', ' '.join(str(p.get(k) or '') for k in
+                      ('name', 'description', *STRING_FIELDS)).casefold())) for p in products]
+        self.names = [set(re.findall(r'\w+', p['name'].casefold())) for p in products]
+
+    def search(self, args):
+        query = re.findall(r'\w+', args['query'].casefold())
+        if not query:
+            return {'results': [], 'recommendations': []}
+        mask = self.index.mask(args['filters'])
+        scored = []
+        for pos in range(self.index.n):
+            if (mask is None or mask[pos]) and all(w in self.words[pos] for w in query):
+                scored.append((-(1 + sum(w in self.names[pos] for w in query)), pos))
+        if args['sort_by'] == 'relevance':
+            scored.sort()
+            positions = [pos for _, pos in scored]
+            if args['sort_order'] == 'asc':
+                positions.reverse()
+        else:
+            positions = self.index.sort_positions([pos for _, pos in scored],
+                                                  args['sort_by'], args['sort_order'])
+        page = positions[args['offset']:args['offset'] + args['limit']]
+        return {'results': [{'id': self.index.ids[p]} for p in page], 'recommendations': []}
 
 
 class Catalog:
-    def __init__(self, products):
+    def __init__(self, products, semantic=True):
         self.products = sorted(products, key=lambda p: p['id'])
-        self.words = {
-            p['id']: set(tokens(' '.join(str(p.get(k) or '') for k in
-                ('name', 'description', *STRING_FILTERS)))) for p in self.products
-        }
+        for product in self.products:
+            for field in UNUSED_FIELDS:
+                product.pop(field, None)
+        self.index = Index(self.products)
+        self.engine = None
+        if semantic:
+            self.engine = LexicalEngine(self.products, self.index)
 
     @classmethod
-    def load(cls, path):
-        return cls(json.loads(Path(path).read_text(encoding='utf-8')))
+    def load(cls, path, semantic=True):
+        return cls(json.loads(Path(path).read_text(encoding='utf-8')), semantic=semantic)
 
-    def relevance(self, product, query_tokens):
-        """Student extension: replace this strict lexical baseline with better retrieval."""
-        words = self.words[product['id']]
-        if not all(word in words for word in query_tokens):
-            return 0
-        name_words = set(tokens(product['name']))
-        return 1 + sum(word in name_words for word in query_tokens)
+    def prepare(self, arguments):
+        """Validate (ValueError on invalid input) and normalize tool arguments."""
+        validate_arguments(arguments)
+        return normalize_arguments(arguments)
 
-    def recommend(self, results, arguments):
-        """Student extension: return up to five complementary product references."""
-        return []
+    def exact(self, args):
+        """Exact empty-query page: catalog filtering, contract ordering, offset, limit."""
+        return {'results': [{'id': pid} for pid in self.index.page_ids(
+                    args['filters'], args['sort_by'], args['sort_order'],
+                    args['offset'], args['limit'])],
+                'recommendations': []}
 
-    @staticmethod
-    def matches(product, filters):
-        for key in STRING_FILTERS:
-            if key in filters and str(product.get(key) or '').strip().casefold() != filters[key].strip().casefold():
-                return False
-        price = product['price']['amount']
-        average = product['rating']['average']
-        return (price >= filters.get('min_price', 0)
-                and price <= filters.get('max_price', math.inf)
-                and ('min_rating' not in filters or
-                     (average is not None and average >= filters['min_rating']))
-                and product['rating']['count'] >= filters.get('min_review_count', 0))
+    def semantic(self, args):
+        return self.engine.search(args)
+
+    def warm_up(self):
+        """Touch every sort order and common filter mask once before serving."""
+        for sort_by in ('relevance', 'id', 'price', 'rating', 'review_count'):
+            for order in ('asc', 'desc'):
+                self.search({'sort_by': sort_by, 'sort_order': order,
+                             'filters': {'color': 'Black', 'max_price': 2000}})
+        if self.engine is not None and hasattr(self.engine, 'warm_up'):
+            self.engine.warm_up()
 
     def search(self, arguments):
-        validate_arguments(arguments)
-        query = tokens(arguments.get('query', '').strip())
-        filters = arguments.get('filters', {})
-        candidates = [p for p in self.products if self.matches(p, filters)]
-        scores = {}
-        if query:
-            scores = {p['id']: self.relevance(p, query) for p in candidates}
-            candidates = [p for p in candidates if scores[p['id']] > 0]
-        sort_by = arguments.get('sort_by', 'relevance')
-        reverse = arguments.get('sort_order', 'desc') == 'desc'
-        # Stable sort preserves ascending ID for equal keys, in either direction.
-        if sort_by == 'relevance':
-            if query:
-                candidates.sort(key=lambda p: scores[p['id']], reverse=reverse)
-        elif sort_by == 'rating':
-            rated = [p for p in candidates if p['rating']['average'] is not None]
-            unrated = [p for p in candidates if p['rating']['average'] is None]
-            rated.sort(key=lambda p: p['rating']['average'], reverse=reverse)
-            candidates = rated + unrated
-        else:
-            key = {'id': lambda p: p['id'], 'price': lambda p: p['price']['amount'],
-                   'review_count': lambda p: p['rating']['count']}[sort_by]
-            candidates.sort(key=key, reverse=reverse)
-        offset, limit = arguments.get('offset', 0), arguments.get('limit', 10)
-        results = [{'id': p['id']} for p in candidates[offset:offset + limit]]
-        return {'results': results, 'recommendations':
-                self.recommend(results, arguments) if results and arguments.get('include_recommendations', False) else []}
+        args = self.prepare(arguments)
+        return self.exact(args) if is_empty_query(args) else self.semantic(args)

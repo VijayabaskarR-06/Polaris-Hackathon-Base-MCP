@@ -25,6 +25,9 @@ MAX_RES = [re.compile(p) for p in (
     rf'|for under|budget(?:\s+(?:of|is|around|upto|up to))?|in (?:a |the |my )?budget of|a budget of|spend(?:ing)?'
     rf'(?:\s+(?:of|upto|up to|max))?)\s*(?:of\s*)?(?:is\s*)?(?::\s*)?{CUR}{NUM}{TAIL}',
     rf'(?:<=?|≤)\s*{CUR}{NUM}{TAIL}',
+    rf'\bsub[\s\-]?{CUR}{NUM}{TAIL}',
+    rf'\b(?:no|not|nothing) (?:costlier|pricier|dearer|more expensive|more costly) than\s*{CUR}{NUM}{TAIL}',
+    rf'{CUR}{NUM}{TAIL}\s*(?:bucks\s*|rupees\s*|rs\s*)?(?:only|flat)\b',
     rf'{CUR}{NUM}{TAIL}\s*(?:or less|or under|or below|or cheaper|or lower|and under|and below|max(?:imum)?\b'
     rf'|tops\b|budget|tak\b|se kam|se neeche|se niche|ke andar|ke under|ke neeche|ke niche|se sasta|ke budget'
     rf'|se (?:zyada|jyada|jada|upar|oopar) (?:nahi|not)\b)',
@@ -179,7 +182,26 @@ GROUP_SECTIONS = {
     'women': ['Womens Everyday Collection', 'Womens Casual', 'Womens Trend'],
     'men': ['Contemporary Casual', 'Men Edition', 'Mens Outerwear'],
 }
-PLACEHOLDER_RE = re.compile(r'\b(?:something|anything|things?|stuff|clothes|clothing|outfits?|gifts?|presents?|'
+# "not in red or black", "no black, grey or navy": the negation reaches every colour in the
+# run, so it is repeated before the request is split into alternatives.
+NEG_PAIR_WORDS = sorted(["not in", "not", "no", "without", "except", "excluding", "nothing", "isn't", "isnt", "isn t",
+                         "is not", "don't want", "dont want", "don t want", "do not want", "doesn't", "doesnt",
+                         "aren't", "arent", "are not", "avoid", "never", "but not", "non", "other than",
+                         "anything but", "nor", "neither", "minus", "hate"], key=len, reverse=True)
+
+
+def neg_pair_re(vocab):
+    cached = getattr(vocab, 'neg_pair_re', None)
+    if cached is None:
+        from engine.vocab import table
+        colours = '|'.join(re.escape(c) for c in sorted(table('COLOR_WORDS'), key=len, reverse=True))
+        negs = '|'.join(re.escape(w) for w in NEG_PAIR_WORDS)
+        cached = re.compile(rf"\b({negs})\s+({colours})(\s*,\s*|\s+(?:or|and|nor|ya|aur)\s+|\s*/\s*)({colours})\b")
+        vocab.neg_pair_re = cached
+    return cached
+
+
+PLACEHOLDER_RE = re.compile(r'\b(?:something|anything|nothing|things?|stuff|clothes|clothing|outfits?|gifts?|presents?|'
                             r'ideas?|options?|wear|wardrobe|essentials)\b')
 POSSESSIVES = {'my', 'our', 'his', 'her', 'your', 'their', 'the', 'a'}
 # Words naming when, not what: in "prom night" or "wedding day" the occasion is the head.
@@ -359,6 +381,8 @@ class RulePlanner:
             kinds = {k for k, _ in entries}
             phrase = tokens[start:end]
             negated = start <= negate_until
+            if negated and end < len(tokens) and tokens[end] in ('or', 'and', 'nor', 'n'):
+                negate_until = max(negate_until, end + 3)    # "not in red or black": both colours
             content_kind = self._content_kind(kinds, phrase, entries)
             if content_kind:
                 seg.content.append((start, content_kind))
@@ -555,6 +579,9 @@ class RulePlanner:
         text = normalize_query(self.vocab.native_to_english(query))
         text = self.vocab.translate_text(text)
         text = self.vocab.split_run_together(text)
+        pair_re = neg_pair_re(self.vocab)
+        for _ in range(3):
+            text = pair_re.sub(lambda m: f'{m.group(1)} {m.group(2)}{m.group(3)}{m.group(1)} {m.group(4)}', text)
         if INJECTION_RE.search(text):
             signals.injection = True
         words = {stem(t) for t in raw_tokens(text)}

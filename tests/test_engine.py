@@ -140,6 +140,22 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(self.ids(query='prom night'))
         self.assertEqual(self.ids(query='a suitcase for air travel'), [])
 
+    def test_unusual_constraint_phrasings_hold(self):
+        for query, cap, excluded in (('sub-1000 hoodie', 1000, ()), ('socks 199 only', 199, ()),
+                                     ('dress no costlier than 2000', 2000, ()), ('jeans ≤ 1500', 1500, ()),
+                                     ("dress that isn't black", None, ('Black',)),
+                                     ('jacket not in red or black', None, ('Red', 'Black')),
+                                     ('no black or grey jeans', None, ('Black', 'Grey')),
+                                     ('dress in any colour but black', None, ('Black',))):
+            with self.subTest(query=query):
+                ids = self.ids(query=query)
+                self.assertTrue(ids)
+                for i in ids:
+                    if cap is not None:
+                        self.assertLessEqual(self.products[i]['price']['amount'], cap)
+                    self.assertNotIn(self.products[i]['color'], excluded)
+        self.assertEqual({self.products[i]['color'] for i in self.ids(query='red or blue dress')}, {'Red', 'Blue'})
+
     def test_vague_wants_for_a_wearer(self):
         for query in ('something for my baby', 'kids stuff', 'something for a 5 year old', 'ethnic wear',
                       'something to keep my airpods safe', 'my feet hurt'):

@@ -188,7 +188,7 @@ def numbers_from_words(text):
 
 def normalize_query(query):
     """Lowercase, fold accents, currency to " inr ", "2,000" -> "2000", "2k" -> "2000"."""
-    text = query.replace('₹', ' inr ')
+    text = query.replace('₹', ' inr ').replace('≤', ' <= ').replace('≥', ' >= ')
     text = EMOJI_RE.sub(lambda m: ' ' + EMOJI_WORDS[m.group(0)] + ' ', text)
     text = fold_accents(text).lower()
     text = STRETCHED.sub(r'\1\1', text)

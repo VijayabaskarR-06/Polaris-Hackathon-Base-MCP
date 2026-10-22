@@ -2263,7 +2263,11 @@ NEGATION_WORDS = [
     'avoiding', 'other than', 'never', 'nothing', 'dont want', 'don t want', 'do not want',
     'dont like', 'don t like', 'do not like', 'not interested in', 'no need for', 'minus', 'but not',
     'apart from', 'instead of', 'rather than', 'none', 'free of', 'hate', 'dislike', 'nor', 'neither',
-    'skip',
+    'skip', 'isnt', 'isn t', 'is not', 'arent', 'aren t', 'are not', 'doesnt', 'doesn t', 'does not',
+    'not in', 'thats not', 'that is not', 'wont', 'won t', 'cant', 'can t',
+    'any colour but', 'any color but', 'any colour except', 'any color except', 'any shade but', 'any shade except',
+    'all colours except', 'all colors except', 'every colour but', 'every color but', 'any other colour than',
+    'any other color than', 'colour other than', 'color other than',
 ]
 
 STOPWORDS = {

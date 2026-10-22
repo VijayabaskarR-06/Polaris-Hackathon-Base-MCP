@@ -4,6 +4,7 @@ Recommendations take their own hard constraints: the complement's budget and
 colours, the stated audience (or the anchor's audience family), never the
 explicit `filters` argument, and never a product already on the page.
 """
+import os
 import re
 
 import numpy as np
@@ -17,6 +18,8 @@ NEUTRALS = {'Black', 'White', 'Off White', 'Beige', 'Light Beige', 'Dark Beige',
 FALLBACK_COMPLEMENTS = ['Bag', 'Belt', 'Sunglasses', 'Scarf', 'Necklace', 'Earring']
 CANDIDATES = 30
 MAX_RECS = 5
+# Named accompaniments are spread over the top equally exact main products, one each.
+REC_SPREAD = os.getenv('REC_SPREAD', '1') == '1'
 # "a bikini top with matching bottoms": the other half of the same kind of set.
 SET_PARTS = {
     'bottom': {'Bikini top': ['Swimwear bottom'], 'Swimwear top': ['Swimwear bottom'],
@@ -323,10 +326,19 @@ class Recommender:
         cached = self.engine.rec_cache.get(cache_key)
         if cached is not None:
             return cached
-        anchor_choice = None
-        if state.pools and 0 <= anchor.choice < len(state.pools):
-            anchor_choice = state.pools[anchor.choice].choice
-        raw, _ = self.candidates(plan, anchor.pid, page, anchor_choice)
+        cands = self.graded_candidates(state, anchor, page, grader)
+        chosen = points.select_recommendations(cands, anchor_p2=points.p_at_least(anchor.probs, 2), k=MAX_RECS)
+        pairs = [(c, anchor) for c in chosen]
+        if REC_SPREAD and plan.complement is not None and len(chosen) > 1:
+            pairs = self.spread(state, ranked, anchor, chosen, page, grader)
+        ids = self.index.ids
+        recs = [{'id': ids[c.pid], 'for_product_id': ids[a.pid],
+                 'reason': reason(self.products[c.pid], self.products[a.pid])} for c, a in pairs]
+        return self.engine.rec_cache.put(cache_key, recs)
+
+    def graded_candidates(self, state, anchor, page, grader=None):
+        choice = state.pools[anchor.choice].choice if state.pools and 0 <= anchor.choice < len(state.pools) else None
+        raw, _ = self.candidates(state.plan, anchor.pid, page, choice)
         grades = grader(anchor.pid, [pid for pid, _, _ in raw]) if grader and raw else {}
         cands = []
         for pid, est, prior in raw:
@@ -334,9 +346,30 @@ class Recommender:
             probs = (points.grade_probs(g, self.engine.calibration, source='twin') if g
                      else points.grade_probs([est], self.engine.calibration, source='estimate'))
             cands.append(points.Candidate(pid=pid, probs=probs, prior=prior))
-        chosen = points.select_recommendations(cands, anchor_p2=points.p_at_least(anchor.probs, 2), k=MAX_RECS)
-        anchor_product = self.products[anchor.pid]
-        ids = self.index.ids
-        recs = [{'id': ids[c.pid], 'for_product_id': ids[anchor.pid],
-                 'reason': reason(self.products[c.pid], anchor_product)} for c in chosen]
-        return self.engine.rec_cache.put(cache_key, recs)
+        return points.order_by_expected_gain(cands, min_gain=0.3)
+
+    def spread(self, state, ranked, anchor, chosen, page, grader=None):
+        """'a dress with a matching bag': each of the top equally exact dresses on the page gets its
+        own best matching bag, as long as it is as good as the main anchor's weakest pick; the
+        main anchor's own picks fill the rest. Best expected grade first."""
+        top = ranked[0][0][:3]
+        position = {pid: i for i, pid in enumerate(page)}
+        others = sorted((c for key, c in ranked if key[:3] == top and c.pid != anchor.pid),
+                        key=lambda c: position.get(c.pid, len(page)))
+        floor = min(points.expected_gain(c.probs) for c in chosen)
+        pairs, used = [(chosen[0], anchor)], {chosen[0].pid}
+        for other in others[:MAX_RECS - 1]:
+            pick = next((c for c in self.graded_candidates(state, other, page, grader)
+                         if c.pid not in used and points.expected_gain(c.probs) >= floor), None)
+            if pick is not None:
+                pairs.append((pick, other))
+                used.add(pick.pid)
+        for c in chosen[1:]:
+            if len(pairs) >= MAX_RECS:
+                break
+            if c.pid not in used:
+                pairs.append((c, anchor))
+                used.add(c.pid)
+        rank = {id(pair): i for i, pair in enumerate(pairs)}
+        pairs.sort(key=lambda pair: (-points.expected_gain(pair[0].probs), rank[id(pair)]))
+        return pairs[:MAX_RECS]

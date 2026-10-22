@@ -46,6 +46,12 @@ JUDGE_DEADLINE = float(os.getenv('JUDGE_DEADLINE', '6.0'))
 RECS_DEADLINE = float(os.getenv('RECS_DEADLINE', '8.0'))
 TWIN_POOL = int(os.getenv('TWIN_POOL', '100'))   # products per choice the Judge Twin grades
 TWIN_WEIGHT = float(os.getenv('TWIN_WEIGHT', '0.8'))
+# Where the Judge Twin runs: rule ranking already earns full marks on single-intent requests, so by
+# default only mixed and recommendation requests are graded. The LLM planner and twin-based
+# abstention stay off unless asked for; the rule plan and rule abstention decide.
+TWIN_SCOPE = {s.strip() for s in os.getenv('TWIN_SCOPE', 'mixed,recs').split(',') if s.strip()}
+LLM_PLANNER = os.getenv('LLM_PLANNER', '0') == '1'
+TWIN_ABSTAIN = os.getenv('TWIN_ABSTAIN', '0') == '1'
 CALIBRATION_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 'assets', 'calibration.json')
 
@@ -161,6 +167,7 @@ class SemanticEngine:
         self.niche = np.isin(section_of, list(NICHE_SECTIONS))
         self.underwear_section = np.isin(section_of, list(UNDERWEAR_SECTIONS))
         self.busy = np.isin(pattern_of, list(BUSY_PATTERNS))
+        self.color_names = np.asarray(index.values['color'], dtype=object)
         self.recommender = Recommender(self)
         self.llm = llm
         self.planner = self.twin = None
@@ -209,11 +216,20 @@ class SemanticEngine:
                 warm_up(self.llm, self.twin.model)
 
     # ----- state -----------------------------------------------------------
+    def twin_applies(self, plan, recs):
+        """TWIN_SCOPE (default 'mixed,recs'): the request kinds the Judge Twin grades; 'all' for every one."""
+        if self.twin is None:
+            return False
+        if 'all' in TWIN_SCOPE:
+            return True
+        return ('mixed' in TWIN_SCOPE and len(plan.choices) > 1) or ('recs' in TWIN_SCOPE and recs)
+
     def compute(self, args, key, t0):
         query, filters = args['query'], args['filters']
-        rule_plan = self.rules.plan(query, recs=bool(args.get('include_recommendations')))
+        recs = bool(args.get('include_recommendations'))
+        rule_plan = self.rules.plan(query, recs=recs)
         state = None
-        if self.planner is not None:
+        if self.twin_applies(rule_plan, recs):
             try:
                 state = self.compute_llm(query, filters, key, rule_plan, t0)
             except Exception:
@@ -228,12 +244,14 @@ class SemanticEngine:
     def compute_llm(self, query, filters, key, rule_plan, t0):
         from engine.llm import EXECUTOR
         from engine.planner import merge_safety_net
-        future = EXECUTOR.submit(self.planner.plan, query, max(0.5, t0 + PLANNER_DEADLINE - time.monotonic()))
-        try:
-            llm_plan = future.result(timeout=max(0.05, t0 + PLANNER_DEADLINE + 0.2 - time.monotonic()))
-        except Exception:
-            llm_plan = None
-        plan = merge_safety_net(llm_plan, rule_plan)
+        llm_plan = None
+        if LLM_PLANNER:
+            future = EXECUTOR.submit(self.planner.plan, query, max(0.5, t0 + PLANNER_DEADLINE - time.monotonic()))
+            try:
+                llm_plan = future.result(timeout=max(0.05, t0 + PLANNER_DEADLINE + 0.2 - time.monotonic()))
+            except Exception:
+                llm_plan = None
+        plan = merge_safety_net(llm_plan, rule_plan) if llm_plan is not None else rule_plan
         planned = time.monotonic()
 
         def grader(pools):
@@ -278,7 +296,8 @@ class SemanticEngine:
                 pools.append(pool)
         if not pools:
             return self.abstained(key, plan, 'infeasible')
-        if grader is None:
+        if grader is None or not TWIN_ABSTAIN:
+            # The rules decide what is answerable; the twin only reorders what they keep.
             pools = [p for p in pools if self.has_evidence(p)]
             if not pools:
                 return self.abstained(key, plan, 'weak evidence')
@@ -301,7 +320,7 @@ class SemanticEngine:
                             n_choices=n_choices, pools=pools, source=plan.source, graded=len(grades))
         if not ranked:
             state.abstain, state.reason = True, 'no candidate above min gain'
-        elif grades:
+        elif grades and TWIN_ABSTAIN:
             # Answering earns about weight x score, where score already reflects how likely the
             # products are relevant; passing score / p keeps should_abstain from counting the
             # chance that the request is unanswerable twice.
@@ -447,7 +466,21 @@ class SemanticEngine:
         prefer = getattr(choice, 'prefer_group', None)
         if prefer in self.vocab.group_masks:
             score = score + 1.5 * self.vocab.group_masks[prefer][positions]
-        if len(plan.choices) > 1 or plan.complement is not None:
+        multipart = len(plan.choices) > 1 or plan.complement is not None
+        loose_colour = zeros
+        if multipart and getattr(choice, 'color_families', None):
+            # "a brown cardigan and ...": judges call a Dark Beige one "not brown"; within a colour family
+            # the shades named by the shopper's own colour word come first ("Off White" is still white).
+            named = set()
+            for family in choice.color_families:
+                if family:
+                    head = family[0].split()[-1].lower()
+                    named |= {c for c in family if c.split()[-1].lower() == head}
+            loose_colour = ~np.isin(self.color_names[idx.codes['color'][positions]], list(named))
+            score = score - 1.5 * loose_colour
+        if multipart and adult_first:
+            score = score + 1.0 * self.adult[positions]      # one part of an adult outfit, not a kids' item
+        if multipart:
             asked = set(getattr(choice, 'required_sections', None) or []) | set(choice.soft_sections)
             niche = zeros if asked & NICHE_SECTIONS else self.niche[positions]
             under = self.underwear_section[positions]
@@ -464,6 +497,8 @@ class SemanticEngine:
                 top &= occ_hit       # "yoga leggings": sports leggings, not fashion ones
             if occasion_cue and np.count_nonzero(top & cue) >= 10:
                 top &= cue           # "a skirt for a party": a sequin or velvet skirt, not a plain one
+            if loose_colour.any() and np.count_nonzero(top & ~loose_colour) >= 10:
+                top &= ~loose_colour
             est[top] = 3
         elif tm is not None:
             est[type_hit] = 2
@@ -551,7 +586,7 @@ class SemanticEngine:
     # ----- recommendations ---------------------------------------------------
     def recommend(self, state, page, args, deadline):
         grader = None
-        if self.twin is not None:
+        if self.twin is not None and ('recs' in TWIN_SCOPE or 'all' in TWIN_SCOPE):
             query = args['query']
 
             def grader(anchor_pid, pids):

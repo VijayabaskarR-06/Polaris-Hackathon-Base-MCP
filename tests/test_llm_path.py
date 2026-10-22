@@ -81,9 +81,18 @@ class LLMPathTests(unittest.TestCase):
         self.assertEqual(len(out['results']), 10)
 
     def test_twin_grades_drive_ranking_and_abstention(self):
-        self.use(FakeLLM(grade_all(0)))
-        out, _ = self.run_query('black jeans graded zero')
+        from unittest import mock
+        import engine.engine as eng
+        with mock.patch.object(eng, 'TWIN_SCOPE', {'all'}), mock.patch.object(eng, 'TWIN_ABSTAIN', True):
+            self.use(FakeLLM(grade_all(0)))
+            out, _ = self.run_query('black jeans graded zero')
         self.assertEqual(out, {'results': [], 'recommendations': []})
+
+    def test_twin_leaves_single_intent_requests_to_the_rules(self):
+        # By default the twin grades only mixed and recommendation requests, and never abstains.
+        self.use(FakeLLM(grade_all(0)))
+        out, _ = self.run_query('black jeans graded zero by default')
+        self.assertEqual(len(out['results']), 10)
 
     def test_invalid_vocabulary_values_are_dropped(self):
         raw = json.loads(plan_json(label='x', product_types=['Trousers', 'Jeggings', 'dress'],

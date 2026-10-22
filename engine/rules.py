@@ -769,6 +769,13 @@ class RulePlanner:
             plan.complement_missing = True
         elif pair is not None and pair.has_type and context is pair:
             plan.complement = self._choice(pair, signals)
+        if plan.complement is not None and plan.audience_group is None and not signals.audience:
+            # "a white shirt with a matching tie": ties are men's, so the shirt most likely is too;
+            # "a top with matching earrings" is a woman's. A preference, never a requirement.
+            known = {self.vocab.type_gender.get(t) for t in plan.complement.product_types} - {None}
+            if len(known) == 1:
+                for choice in plan.choices:
+                    choice.prefer_group = next(iter(known))
         # What the shopper owns ("I bought a Zara jacket") is not what they ask for.
         asked = segments if owned is None else choices_segs + ([complement] if complement is not None else [])
         signals.unknown = [w for s in asked for w in s.unknown]

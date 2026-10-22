@@ -214,8 +214,10 @@ class Recommender:
         # Judged data: neutral accessories (black, white, beige, gold, silver) grade at least as
         # well as same-colour ones, so harmony matters and an exact colour match only a little,
         # unless the shopper asked for a matching item.
-        matching = 3.0 if getattr(plan, 'matching', False) else 0.3
+        matching = 3.0 if getattr(plan, 'matching', False) or explicit else 0.3
         utility = bm.any_mask(UTILITY_WORDS, names_only=True)[positions]
+        if 'Belt' in types:
+            utility = utility | bm.any_mask(['bag'], names_only=True)[positions]   # belt bags are bags
         # "a matching clutch": a bag named clutch beats a tote whose description mentions one.
         name_hit = (bm.any_mask(kw_terms, names_only=True)[positions] if explicit and kw_terms
                     else np.zeros(len(positions), dtype=bool))
@@ -225,6 +227,10 @@ class Recommender:
         est = np.where(harmony & kw_hit, 3, 2)
         if explicit and not kw_terms:
             est = np.where(harmony, 3, 2)
+        if explicit and same_family.any():
+            # "a red dress with a matching clutch": judges give the top grade to an accompaniment in
+            # the main item's colour; a black or beige one goes with it but is a looser match.
+            est = np.where(same_family & kw_hit, 3, 2)
         order = np.lexsort((positions, -score))
         chosen, per_type = [], {}
         # Implicit complements: spread across complement types so one weak type can't sink all five;
@@ -243,9 +249,13 @@ class Recommender:
             chosen += [i for i in order if i not in chosen][:CANDIDATES - len(chosen)]
         top_score = float(score[chosen].max()) if chosen else 1.0
         span = max(1e-9, top_score - float(score[chosen].min())) if chosen else 1.0
-        out = []
+        out, names = [], set()
         for rank, i in enumerate(chosen):
             prior = (float(score[i]) - float(score[chosen].min())) / span
+            name = self.products[int(positions[i])]['name'].strip().lower()
+            if name in names:
+                prior *= 0.5         # a second colourway of the same product only after the others
+            names.add(name)
             out.append((int(positions[i]), int(est[i]), prior))
         return out, explicit
 
@@ -254,7 +264,12 @@ class Recommender:
         anchor grades >= 2, so among equally likely products prefer the one that is exactly what
         was asked for (the stated colour itself rather than a shade, the primary kind rather than
         a sibling type), then the earliest."""
-        best, best_key = None, None
+        ranked = self.anchor_options(state, page_cands)
+        return ranked[0][1] if ranked else None
+
+    def anchor_options(self, state, page_cands):
+        """(key, candidate) for every page product, best anchor first (see choose_anchor)."""
+        ranked = []
         for i, cand in enumerate(page_cands):
             p = self.products[cand.pid]
             choice = state.pools[cand.choice].choice if state.pools and 0 <= cand.choice < len(state.pools) else None
@@ -265,16 +280,45 @@ class Recommender:
                 primary = getattr(choice, 'primary_types', None) or choice.product_types
                 primary_type = int(not primary or p['product_type'] in primary)
             key = (round(points.p_at_least(cand.probs, 2), 2), primary_type, exact_colour, -i)
-            if best_key is None or key > best_key:
-                best, best_key = cand, key
+            ranked.append((key, cand))
+        ranked.sort(key=lambda kc: kc[0], reverse=True)
+        return ranked
+
+    def fitting_anchor(self, state, ranked, page):
+        """Among equally exact anchors, the one whose accompaniments can match it.
+
+        "a yellow t-shirt with a coordinating wallet": a men's tee only has black wallets in its
+        section, a women's tee has yellow ones; "a white shirt with a matching tie": ties are men's.
+        Preference: more accompaniments in the anchor's colour, then more from its own audience.
+        """
+        best = ranked[0][1]
+        plan = state.plan
+        if plan.complement is None or plan.complement.colors:
+            return best
+        top = ranked[0][0][:3]
+        options = [cand for key, cand in ranked if key[:3] == top][:5]
+        if len(options) < 2:
+            return best
+        best_fit = None
+        for cand in options:
+            choice = state.pools[cand.choice].choice if state.pools and 0 <= cand.choice < len(state.pools) else None
+            raw, _ = self.candidates(plan, cand.pid, page, choice)
+            family = color_family(self.products[cand.pid]['color'])
+            group = self.vocab.group_of(cand.pid)
+            same = sum(color_family(self.products[pid]['color']) == family for pid, _, _ in raw)
+            own = sum(self.vocab.group_of(pid) == group for pid, _, _ in raw[:MAX_RECS])
+            fit = (min(same, MAX_RECS), own)
+            if best_fit is None or fit > best_fit:
+                best, best_fit = cand, fit
         return best
 
     def recommend(self, state, page, grader=None):
         plan = state.plan
         page_cands = [c for c in (state.candidate(pid) for pid in page) if c is not None]
-        anchor = self.choose_anchor(state, page_cands)
-        if anchor is None:
+        ranked = self.anchor_options(state, page_cands)
+        if not ranked:
             return []
+        anchor = self.fitting_anchor(state, ranked, page)
         cache_key = (state.key, anchor.pid, tuple(page))
         cached = self.engine.rec_cache.get(cache_key)
         if cached is not None:

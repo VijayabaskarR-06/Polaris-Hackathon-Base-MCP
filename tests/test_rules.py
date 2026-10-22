@@ -25,6 +25,16 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(budgets('dress 1.5k max'), [(None, 1500)])
         self.assertEqual(budgets('t-shirts and shorts, nothing over 800'), [(None, 800)])
 
+    def test_budgets_in_words(self):
+        self.assertEqual(budgets('a top under a thousand'), [(None, 1000)])
+        self.assertEqual(budgets('jeans under two thousand'), [(None, 2000)])
+        self.assertEqual(budgets('shoes below fifteen hundred'), [(None, 1500)])
+        self.assertEqual(budgets('sneakers under one thousand five hundred'), [(None, 1500)])
+        self.assertEqual(budgets('jacket under 3 grand'), [(None, 3000)])
+        self.assertEqual(budgets('kurta do hazaar se kam'), [(None, 2000)])
+        self.assertEqual(budgets('gift for my grand daughter'), [])
+        self.assertEqual(budgets('one shoulder top'), [])
+
     def test_not_budgets(self):
         self.assertEqual(budgets('jeans for a 5 year old'), [])
         self.assertEqual(budgets('3 pack socks'), [])

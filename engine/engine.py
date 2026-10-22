@@ -444,7 +444,10 @@ class SemanticEngine:
         if adult_first:
             # No audience stated: adult products first, before the pool is cut to size.
             score = score + 1.0 * self.adult[positions]
-        if len(plan.choices) > 1:
+        prefer = getattr(choice, 'prefer_group', None)
+        if prefer in self.vocab.group_masks:
+            score = score + 1.5 * self.vocab.group_masks[prefer][positions]
+        if len(plan.choices) > 1 or plan.complement is not None:
             asked = set(getattr(choice, 'required_sections', None) or []) | set(choice.soft_sections)
             niche = zeros if asked & NICHE_SECTIONS else self.niche[positions]
             under = self.underwear_section[positions]

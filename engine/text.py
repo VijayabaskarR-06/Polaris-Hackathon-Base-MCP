@@ -108,6 +108,65 @@ EMOJI_WORDS = {
 EMOJI_RE = re.compile('|'.join(re.escape(e) for e in sorted(EMOJI_WORDS, key=len, reverse=True)))
 
 
+NUMBER_WORDS = {
+    'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6, 'seven': 7, 'eight': 8,
+    'nine': 9, 'ten': 10, 'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
+    'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20, 'thirty': 30, 'forty': 40,
+    'fifty': 50, 'sixty': 60, 'seventy': 70, 'eighty': 80, 'ninety': 90,
+    # Hindi, as written in Hinglish: "do hazaar", "dedh hazaar" (1.5 thousand), "paanch sau".
+    'ek': 1, 'do': 2, 'teen': 3, 'char': 4, 'chaar': 4, 'paanch': 5, 'panch': 5, 'chhe': 6, 'saat': 7,
+    'aath': 8, 'nau': 9, 'das': 10, 'dedh': 1.5, 'dhai': 2.5, 'dhaai': 2.5, 'adhai': 2.5,
+}
+NUMBER_SCALES = {'hundred': 100, 'sau': 100, 'thousand': 1000, 'grand': 1000, 'hazaar': 1000, 'hazar': 1000,
+                 'hajar': 1000, 'hazaar': 1000}
+# A run of number words or digits that contains a scale word ("two thousand five hundred", "3 grand",
+# "a thousand", "dedh hazaar"); runs without one ("one shoulder", "two piece") are left alone.
+NUMBER_RUN = re.compile(r'\b(?:(?:{w}|\d+(?:\.\d+)?|and)\s+)*(?:{w}|\d+(?:\.\d+)?)?\s*(?:{s})\b(?:\s+(?:and\s+)?(?:{w}|{s}|\d+)\b)*'.format(
+    w='|'.join(sorted((k for k in NUMBER_WORDS if k not in ('a', 'an', 'do', 'das')), key=len, reverse=True))
+      + r'|a|an|do|das',
+    s='|'.join(sorted(NUMBER_SCALES, key=len, reverse=True))))
+
+
+def _number_value(run):
+    total, current, seen_scale = 0.0, 0.0, False
+    for word in run.split():
+        if word == 'and':
+            continue
+        if word in NUMBER_SCALES:
+            scale = NUMBER_SCALES[word]
+            seen_scale = True
+            if scale == 100:
+                current = (current or 1) * 100
+            else:
+                total += (current or 1) * scale
+                current = 0.0
+        elif word in NUMBER_WORDS:
+            current += NUMBER_WORDS[word]
+        else:
+            try:
+                current += float(word)
+            except ValueError:
+                return None
+    value = total + current
+    return int(round(value)) if seen_scale and value > 0 else None
+
+
+GRAND_FAMILY = re.compile(r'\s*(?:daughters?|sons?|child(?:ren)?|kids?|ma|pa|mothers?|fathers?|parents?|dad|mum|mom'
+                          r'|opening|prix|piano|finale?)\b')
+
+
+def numbers_from_words(text):
+    """'under two thousand' -> 'under 2000', 'fifteen hundred' -> '1500', 'a grand' -> '1000'."""
+    def replace(m):
+        run = m.group(0)
+        words = run.split()
+        if words[-1] == 'grand' and (len(words) < 2 or GRAND_FAMILY.match(m.string, m.end())):
+            return run           # "grand daughter", "grand opening": not a thousand
+        value = _number_value(run)
+        return f' {value} ' if value is not None else run
+    return NUMBER_RUN.sub(replace, text)
+
+
 def normalize_query(query):
     """Lowercase, fold accents, currency to " inr ", "2,000" -> "2000", "2k" -> "2000"."""
     text = query.replace('₹', ' inr ')
@@ -116,6 +175,7 @@ def normalize_query(query):
     text = WITH_ABBREVIATION.sub(lambda m: ' without ' if m.group(1) else ' with ', text)
     text = CURRENCY.sub(' inr ', text)
     text = NUMBER_COMMA.sub('', text)
+    text = numbers_from_words(text)
     text = NUMBER_K.sub(lambda m: str(int(float(m.group(1)) * 1000)), text)
     text = re.sub(r'(?<=\d)(inr)\b', r' \1', text)
     text = re.sub(r'\binr(?=\d)', 'inr ', text)

@@ -140,6 +140,17 @@ class EngineTests(unittest.TestCase):
         self.assertTrue(self.ids(query='prom night'))
         self.assertEqual(self.ids(query='a suitcase for air travel'), [])
 
+    def test_vague_wants_for_a_wearer(self):
+        for query in ('something for my baby', 'kids stuff', 'something for a 5 year old', 'ethnic wear',
+                      'something to keep my airpods safe', 'my feet hurt'):
+            with self.subTest(query=query):
+                self.assertGreaterEqual(len(self.ids(query=query)), 10, query)
+        self.assertTrue({self.products[i]['product_type'] for i in self.ids(query='something fancy')} <=
+                        {'Dress', 'Skirt', 'Jumpsuit/Playsuit', 'Top', 'Blouse'})
+        for query in ('baby', 'men', 'stuff', 'something'):
+            with self.subTest(query=query):
+                self.assertEqual(self.ids(query=query), [])
+
     def test_one_accompaniment_per_main_product(self):
         out = self.search(query='Find a black dress with a matching bag under INR 1500', include_recommendations=True)
         anchors = [r['for_product_id'] for r in out['recommendations']]

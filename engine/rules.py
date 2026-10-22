@@ -170,6 +170,17 @@ GENERIC_GARMENT_WORDS = {'shirt', 'top', 'tee', 'tshirt', 'wear', 'set', 'clothe
 PREPOSITIONS = {'for', 'with', 'to', 'in', 'on', 'at', 'from', 'during', 'like', 'without', 'by', 'near', 'into'}
 # Brand names that are also people: "gloves for my boss" is a gift, not Hugo Boss.
 PERSON_WORDS = {'boss'}
+# Where a shopper with nothing named browses for the wearer stated ("something for my baby").
+GROUP_SECTIONS = {
+    'baby': ['Baby Essentials & Complements', 'Baby Girl', 'Baby Boy'],
+    'kids': ['Kids Girl', 'Kids Boy', 'Young Girl', 'Young Boy'],
+    'girls': ['Kids Girl', 'Young Girl'],
+    'boys': ['Kids Boy', 'Young Boy'],
+    'women': ['Womens Everyday Collection', 'Womens Casual', 'Womens Trend'],
+    'men': ['Contemporary Casual', 'Men Edition', 'Mens Outerwear'],
+}
+PLACEHOLDER_RE = re.compile(r'\b(?:something|anything|things?|stuff|clothes|clothing|outfits?|gifts?|presents?|'
+                            r'ideas?|options?|wear|wardrobe|essentials)\b')
 POSSESSIVES = {'my', 'our', 'his', 'her', 'your', 'their', 'the', 'a'}
 # Words naming when, not what: in "prom night" or "wedding day" the occasion is the head.
 TIME_WORDS = {'night', 'day', 'evening', 'morning', 'afternoon', 'weekend', 'eve', 'time', 'season', 'event',
@@ -841,6 +852,14 @@ class RulePlanner:
             plan.kind = 'nonsense'        # maternity wear for a man: an impossible requirement
         else:
             plan.kind = self._kind(plan, segments, signals)
+        if plan.kind == 'nonsense' and plan.choices and plan.audience_group in GROUP_SECTIONS \
+                and not signals.injection and PLACEHOLDER_RE.search(text):
+            # "something for my baby", "kids stuff": nothing named, but the wearer's own sections
+            # hold what such a shopper browses; a defensible answer beats an empty one.
+            plan.choices[0].soft_sections = [x for x in GROUP_SECTIONS[plan.audience_group]
+                                             if x in self.vocab.values['section']]
+            if plan.choices[0].soft_sections:
+                plan.kind = 'search'
         plan.notes.append(signals)
         return plan
 

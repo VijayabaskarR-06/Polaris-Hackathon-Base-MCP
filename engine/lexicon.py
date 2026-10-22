@@ -2484,7 +2484,7 @@ NON_CATALOG_WORDS = {
     'skateboard', 'surfboard', 'tent', 'tents', 'yoga mat',
     # Indian ethnic wear the catalog does not carry
     'saree', 'sarees', 'sari', 'saris', 'lehenga', 'lehengas', 'ghagra', 'sherwani', 'dhoti', 'bindi',
-    'mangalsutra', 'sindoor', 'ethnic',
+    'mangalsutra', 'sindoor',
 }
 
 # ---------------------------------------------------------------------------
@@ -2844,3 +2844,17 @@ TYPE_WORDS.update({
     'hijab': (['Scarf', 'Hair/alice band'], ['scarf', 'headscarf']),
 })
 FOREIGN_WORDS.update({'sarouel': 'baggy trousers', 'kolhapuri': 'leather sandals'})
+# Vague wants with a sensible catalog answer.
+_ETHNIC = (['Blouse', 'Dress', 'Top', 'Sarong'], ['tunic', 'kaftan', 'embroidered'])
+_CASE = (['Wireless earphone case', 'Mobile case', 'Other accessories'], ['airpods', 'case'])
+TYPE_WORDS.update({
+    'ethnic': _ETHNIC, 'ethnicwear': _ETHNIC, 'desi': _ETHNIC, 'desi wear': _ETHNIC,
+    'indian wear': _ETHNIC, 'traditional wear': _ETHNIC, 'indian outfit': _ETHNIC, 'traditional outfit': _ETHNIC,
+    'keep my airpods safe': _CASE, 'protect my airpods': _CASE, 'keep my earbuds safe': _CASE,
+    'protect my earbuds': _CASE, 'keep my phone safe': (['Mobile case', 'Other accessories'], ['phone case']),
+    'keep my laptop safe': (['Other accessories', 'Bag'], ['laptop']), 'protect my laptop': (['Other accessories', 'Bag'], ['laptop']),
+    'nothing to wear': (['Dress', 'Top', 'Blouse', 'Trousers'], ['dress']),
+})
+OCCASIONS.update({'fancy': _PARTY})
+# Complaints name the body part that needs dressing ("my feet hurt" wants soft socks or slippers).
+STOPWORDS.update(['hurt', 'hurts', 'hurting', 'ache', 'aches', 'aching', 'sore', 'pain', 'painful', 'tired'])

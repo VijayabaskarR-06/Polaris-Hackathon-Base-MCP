@@ -209,7 +209,9 @@ class LexiconTest(unittest.TestCase):
         for key, value in L.OCCASIONS.items():
             where = f'OCCASIONS[{key!r}]'
             self.assertLessEqual({'types', 'keywords', 'sections', 'audience'}, set(value), where)
-            self.assertLessEqual(set(value), {'types', 'keywords', 'sections', 'audience', 'colors'}, where)
+            self.assertLessEqual(set(value), {'types', 'keywords', 'sections', 'audience', 'colors', 'footwear'}, where)
+            if 'footwear' in value:
+                self.assert_values(where, value['footwear'], 'product_type')
             if 'colors' in value:
                 self.assert_values(where, value['colors'], 'color')
             self.assert_values(where, value['types'], 'product_type')

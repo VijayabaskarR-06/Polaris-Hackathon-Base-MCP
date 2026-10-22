@@ -1927,7 +1927,29 @@ _EID = {'types': ['Dress', 'Blouse', 'Shirt', 'Trousers', 'Skirt'],
 _HOLI = {'types': ['T-shirt', 'Shirt', 'Top', 'Trousers', 'Shorts', 'Dress'],
          'keywords': ['white', 'cotton', 'linen', 'jersey'],
          'sections': [],
-         'audience': None}
+         'audience': None, 'colors': ['White', 'Off White']}
+# Indian ceremonies with a traditional colour: haldi is yellow, mehendi green, karwa chauth red,
+# onam cream with gold; the colour ranks first when the shopper names none.
+_HALDI = {'types': ['Dress', 'Top', 'Blouse', 'Skirt', 'Jumpsuit/Playsuit'],
+          'keywords': ['yellow', 'floral', 'embroidered', 'cotton'],
+          'sections': [],
+          'audience': None, 'colors': ['Yellow', 'Dark Yellow', 'Light Yellow']}
+_MEHENDI = {'types': ['Dress', 'Top', 'Blouse', 'Skirt', 'Jumpsuit/Playsuit'],
+            'keywords': ['green', 'embroidered', 'floral', 'festive'],
+            'sections': [],
+            'audience': None, 'colors': ['Green', 'Dark Green', 'Light Green']}
+_SANGEET = {'types': ['Dress', 'Top', 'Skirt', 'Jumpsuit/Playsuit', 'Blouse'],
+            'keywords': ['sequins', 'glittery', 'embroidered', 'satin', 'metallic', 'festive'],
+            'sections': ['Womens Premium', 'Womens Trend', 'Divided Selected'],
+            'audience': None}
+_KARWA_CHAUTH = {'types': ['Dress', 'Blouse', 'Top', 'Skirt'],
+                 'keywords': ['red', 'embroidered', 'festive', 'satin'],
+                 'sections': [],
+                 'audience': None, 'colors': ['Red', 'Dark Red']}
+_ONAM = {'types': ['Dress', 'Blouse', 'Top', 'Skirt'],
+         'keywords': ['cotton', 'gold-coloured', 'embroidered'],
+         'sections': [],
+         'audience': None, 'colors': ['Off White', 'White', 'Light Beige']}
 _NAVRATRI = {'types': ['Skirt', 'Dress', 'Blouse', 'Top', 'Earring'],
              'keywords': ['embroidered', 'flared', 'sequins', 'tiered', 'patterned'],
              'sections': ['Womens Trend', 'Womens Premium'],
@@ -2075,8 +2097,8 @@ OCCASIONS = {
     'guest': _EVENING, 'tonight': _EVENING, 'awards night': _EVENING, 'photoshoot': _ELEGANT,
     'photo shoot': _ELEGANT,
     'wedding': _WEDDING, 'weddings': _WEDDING, 'wedding guest': _WEDDING, 'wedding party': _WEDDING,
-    'reception': _WEDDING, 'engagement': _WEDDING, 'sangeet': _WEDDING, 'mehendi': _WEDDING,
-    'mehndi': _WEDDING, 'haldi': _WEDDING, 'baraat': _WEDDING, 'pre wedding': _WEDDING,
+    'reception': _WEDDING, 'engagement': _WEDDING, 'sangeet': _SANGEET, 'mehendi': _MEHENDI,
+    'mehndi': _MEHENDI, 'haldi': _HALDI, 'baraat': _WEDDING, 'pre wedding': _WEDDING,
     'ceremony': _WEDDING, 'christening': _WEDDING, 'anniversary': _WEDDING, 'bridesmaid': _WEDDING,
     'groom': _WEDDING, 'mother of the bride': _WEDDING,
     'bridal': _BRIDAL, 'bridal shower': _BRIDAL,
@@ -2153,8 +2175,8 @@ OCCASIONS = {
     'secret santa': _GIFT, 'thanksgiving': _AUTUMN,
     'festive': _FESTIVE, 'festive season': _FESTIVE, 'festive wear': _FESTIVE,
     'festival season': _FESTIVE, 'function': _FESTIVE, 'puja': _FESTIVE, 'pooja': _FESTIVE,
-    'pongal': _FESTIVE, 'onam': _FESTIVE, 'rakhi': _FESTIVE, 'raksha bandhan': _FESTIVE,
-    'karwa chauth': _FESTIVE, 'lohri': _FESTIVE, 'durga puja': _FESTIVE,
+    'pongal': _FESTIVE, 'onam': _ONAM, 'rakhi': _FESTIVE, 'raksha bandhan': _FESTIVE,
+    'karwa chauth': _KARWA_CHAUTH, 'lohri': _FESTIVE, 'durga puja': _FESTIVE,
     'diwali': _DIWALI, 'deepavali': _DIWALI, 'dussehra': _DIWALI,
     'eid': _EID, 'ramadan': _EID, 'iftar': _EID,
     'holi': _HOLI,

@@ -118,6 +118,14 @@ class EngineTests(unittest.TestCase):
                 first = [self.products[i]['product_type'] for i in ids[:2]]
                 self.assertEqual(len(set(first)), 2, first)
 
+    def test_ceremony_colours(self):
+        for query, family in (('haldi', 'Yellow'), ('mehendi', 'Green'), ('karwa chauth', 'Red')):
+            with self.subTest(query=query):
+                colours = [self.products[i]['color'] for i in self.ids(query=query)]
+                self.assertTrue(all(family in c for c in colours), colours)
+        colours = {self.products[i]['color'] for i in self.ids(query='blue dress for haldi')}
+        self.assertEqual(colours, {'Blue'})
+
     def test_mixed_items_prefer_plain_mainline_products(self):
         ids = self.ids(query='Grey Hoodie and Black Sweatpants')
         sections = {self.products[i]['section'] for i in ids}

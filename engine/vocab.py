@@ -354,6 +354,7 @@ class Vocab:
                 'keywords': list(info.get('keywords', [])),
                 'sections': [s for s in (self.exact('section', s) for s in info.get('sections', [])) if s],
                 'audience': self.exact('audience', info['audience']) if info.get('audience') else None,
+                'colors': [c for c in (self.exact('color', c) for c in info.get('colors', [])) if c],
             })
         for word, (types, keywords) in table('BODY_PART_WORDS').items():
             m.add(word, 'hint', {'types': self.types(types), 'keywords': list(keywords), 'sections': [],

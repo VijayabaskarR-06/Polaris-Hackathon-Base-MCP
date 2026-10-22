@@ -467,6 +467,11 @@ class SemanticEngine:
         if prefer in self.vocab.group_masks:
             score = score + 1.5 * self.vocab.group_masks[prefer][positions]
         multipart = len(plan.choices) > 1 or plan.complement is not None
+        soft_colors = getattr(choice, 'soft_colors', None) or []
+        tradition = (np.isin(self.color_names[idx.codes['color'][positions]], soft_colors) if soft_colors
+                     else zeros)
+        if soft_colors:
+            score = score + 3.0 * tradition
         loose_colour = zeros
         if multipart and getattr(choice, 'color_families', None):
             # "a brown cardigan and ...": judges call a Dark Beige one "not brown"; within a colour family
@@ -499,10 +504,15 @@ class SemanticEngine:
                 top &= cue           # "a skirt for a party": a sequin or velvet skirt, not a plain one
             if loose_colour.any() and np.count_nonzero(top & ~loose_colour) >= 10:
                 top &= ~loose_colour
+            if tradition.any() and np.count_nonzero(top & tradition) >= 10:
+                top &= tradition     # "a dress for haldi": a yellow one
             est[top] = 3
         elif tm is not None:
             est[type_hit] = 2
-            est[type_hit & (occ_hit if occasion_signal else (sec_hit | soft_hit))] = 3
+            top = type_hit & (occ_hit if occasion_signal else (sec_hit | soft_hit))
+            if tradition.any() and np.count_nonzero(type_hit & tradition) >= 10:
+                top = type_hit & tradition
+            est[top] = 3
         elif free:
             est[free_cov >= 0.5] = 2
             est[(free_cov >= 0.999) & ((free_name > 0) | (len(free) == 1))] = 3

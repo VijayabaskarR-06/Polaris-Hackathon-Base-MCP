@@ -1035,8 +1035,10 @@ class RulePlanner:
         soft_words, soft_sections = [], list(dict.fromkeys(seg.sections))
         occasion_types, occasion_sections, occasion_audiences = [], [], []
         type_sets = []
+        occasion_colors = []
         for occ in seg.occasions:
             soft_words += [w for w in occ['keywords'] if w not in soft_words]
+            occasion_colors += [c for c in occ.get('colors', []) if c not in occasion_colors]
             soft_sections += [s for s in occ['sections'] if s not in soft_sections]
             occasion_sections += [s for s in occ['sections'] if s not in occasion_sections]
             if occ.get('audience') and occ['audience'] not in occasion_audiences:
@@ -1104,6 +1106,8 @@ class RulePlanner:
         choice.color_families = [list(f) for f in seg.colors]
         choice.type_words = list(seg.type_words)
         choice.occasion = bool(seg.occasions)
+        # "haldi": a ceremony's traditional colour is a strong preference unless a colour was stated.
+        choice.soft_colors = [] if colors or exclude_colors else occasion_colors
         choice.generic = seg.generic
         choice.from_group = not seg.types and bool(seg.group_types)
         return choice

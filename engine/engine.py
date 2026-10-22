@@ -30,6 +30,10 @@ log = logging.getLogger('polaris.engine')
 
 POOL_SINGLE, POOL_MIXED = 100, 50
 EVIDENCE_COVERAGE = 0.6
+# Fabric and finish words that mark an item as dressy (stems, as the BM25 index stores them).
+DRESSY_TERMS = {'satin', 'sequin', 'velvet', 'lace', 'chiffon', 'metallic', 'glitter', 'glittery', 'sparkly',
+                'shimmer', 'shimmering', 'tulle', 'beaded', 'embellished', 'silk', 'crepe', 'organza', 'jacquard',
+                'pleated', 'party'}
 # Deadlines, seconds after the request starts (the benchmark allows 10 s per call).
 PLANNER_DEADLINE = float(os.getenv('PLANNER_DEADLINE', '2.5'))
 JUDGE_DEADLINE = float(os.getenv('JUDGE_DEADLINE', '6.0'))
@@ -395,6 +399,18 @@ class SemanticEngine:
 
         score = (bm_norm + 4.0 * type_ok + 1.5 * type_hit + 2.0 * name_hit + 2.0 * free_cov
                  + 1.5 * sec_hit + 1.5 * occ_hit + 1.0 * pat_hit + 0.5 * soft_hit)
+        # "a blue dress for a party": among dresses, judges give the top grade to ones whose facts
+        # show the occasion (lace, satin, sequins, chiffon); a plain jersey dress is a looser match.
+        # The same holds for any occasion: a red Christmas jumper says Christmas, a winter sweater
+        # is knitted or wool. Items without such a cue only rank after those with one.
+        occasion_cue = (tm is not None and not occasion_types and getattr(choice, 'occasion', False)
+                        and bool(soft))
+        dressy = occasion_cue and bool(DRESSY_TERMS & set(soft))
+        cue = zeros
+        if occasion_cue:
+            cue_terms = sorted(set(soft) | (DRESSY_TERMS if dressy else set()))
+            cue = bm.any_mask(cue_terms)[positions] | sec_hit
+            score = score + (2.0 if dressy else 1.5) * cue
         del occ_sections
         adult_first = (getattr(choice, 'audience_group', None) or plan.audience_group) is None
         if adult_first:
@@ -406,6 +422,8 @@ class SemanticEngine:
             top = type_ok & (free_cov >= 0.999)
             if occasion_signal:
                 top &= occ_hit       # "yoga leggings": sports leggings, not fashion ones
+            if occasion_cue and np.count_nonzero(top & cue) >= 10:
+                top &= cue           # "a skirt for a party": a sequin or velvet skirt, not a plain one
             est[top] = 3
         elif tm is not None:
             est[type_hit] = 2

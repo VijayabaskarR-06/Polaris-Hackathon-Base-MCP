@@ -47,6 +47,7 @@ COMPOUNDS = [
     (re.compile(r'\boff[\s\-]?(the[\s\-]?)?shoulder\b'), ' offshoulder '),
     (re.compile(r'\bplus[\s\-]?size(d)?\b'), ' plussize '),
     (re.compile(r'\bdenim[\s\-]?jeans\b'), ' jeans '),
+    (re.compile(r'\bmonkey[\s\-]?caps?\b'), ' balaclava beanie '),
 ]
 
 
@@ -97,7 +98,7 @@ EMOJI_WORDS = {
     '👟': 'sneakers', '👞': 'shoes', '👠': 'heels', '👡': 'sandals', '👢': 'boots', '🥾': 'boots', '🧥': 'jacket',
     '👒': 'hat', '🎩': 'hat', '🧢': 'cap', '🕶': 'sunglasses', '👓': 'glasses', '👜': 'bag', '👛': 'purse', '🎒': 'backpack',
     '🧦': 'socks', '🧤': 'gloves', '🧣': 'scarf', '👔': 'tie', '👕': 'tshirt', '👘': 'robe', '👙': 'bikini', '🩳': 'shorts',
-    '🩱': 'swimsuit', '🩲': 'underwear', '💍': 'ring', '📿': 'necklace', '⌚': 'watch', '☔': 'umbrella', '🌂': 'umbrella',
+    '🩱': 'swimsuit', '🩲': 'underwear', '💍': 'ring', '📿': 'necklace', '⌚': 'watch', '☔': 'rain', '🌂': 'umbrella',
     '🐶': 'dog', '🐕': 'dog', '🎃': 'halloween', '🎄': 'christmas', '🏖': 'beach', '🏝': 'beach', '❄': 'winter', '⛄': 'winter',
     '☀': 'summer', '🌧': 'rain', '🌞': 'summer', '💪': 'gym', '🏋': 'gym', '🧘': 'yoga', '🏃': 'running', '💃': 'party',
     '🕺': 'party', '👰': 'wedding', '💒': 'wedding', '🎓': 'graduation', '🎁': 'gift', '🎂': 'birthday', '💼': 'office',

@@ -1140,7 +1140,7 @@ COLOR_WORDS = {
     'lime': ['Light Green', 'Green', 'Other Green'],
     'lime green': ['Light Green', 'Green', 'Other Green'],
     'neon green': ['Other Green', 'Light Green', 'Green'],
-    'mustard': ['Dark Yellow', 'Yellow'],
+    'mustard': ['Dark Yellow'],
     'mustard yellow': ['Dark Yellow', 'Yellow'],
     'lemon': ['Light Yellow', 'Yellow'],
     'butter yellow': ['Light Yellow'],
@@ -2691,8 +2691,7 @@ TYPE_WORDS.update({'half pants': (['Shorts'], ['shorts']), 'half pant': (['Short
 # Mood words that describe a look, not an item: "beach vibes" is beachwear.
 STOPWORDS.update(['vibes', 'vibe', 'vibey', 'aesthetic', 'aesthetics', 'mood', 'energy', 'feels'])
 # Indian and Australian English for things the catalog sells.
-TYPE_WORDS.update({'monkey cap': (['Hat/beanie', 'Beanie'], ['balaclava', 'beanie']), 'monkey caps': (['Hat/beanie', 'Beanie'], ['balaclava', 'beanie']),
-                   'sunnies': (['Sunglasses'], ['sunglasses'])})
+TYPE_WORDS.update({'sunnies': (['Sunglasses'], ['sunglasses'])})
 # Hinglish filler left after a parsed budget ("budget 3000 se upar nahi").
 STOPWORDS.update(['upar', 'oopar'])
 # Short vowel-dropped spellings the corrector cannot decide ("shrt": shirt or short).

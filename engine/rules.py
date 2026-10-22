@@ -31,6 +31,7 @@ MIN_RES = [re.compile(p) for p in (
     rf'{CUR}{NUM}{TAIL}\s*(?:or more|or above|and above|and up\b|plus\b|\+|se zyada|se jyada|se upar|se oopar|ke upar)',
 )]
 RANGE_RE = re.compile(rf'(?:\bbetween\s*|\bfrom\s*|\bin the range (?:of\s*)?)?{CUR}{NUM}{TAIL}\s*(?:-|–|to|and|se)\s*{CUR}{NUM}{TAIL}')
+EXACT_RE = re.compile(rf'\b(?:(?:costs?|costing|priced|price(?: is)?|for)\s+)?(?:exactly|precisely)\s*(?:at\s*)?{CUR}{NUM}{TAIL}')
 AROUND_RE = re.compile(rf'\b(?:around|about|approximately|approx|roughly|close to|near|nearly|~)\s*{CUR}{NUM}{TAIL}')
 BARE_RE = re.compile(rf'(?:\b(?:for|at|@|priced at|costing|cost|price)\s*{CUR}{NUM}{TAIL})|(?:inr\s*{NUM}{TAIL})|(?:{NUM}\s*inr)')
 EACH_RE = re.compile(r'\b(?:each|per item|per piece|apiece|a piece|har ek|each one|both|dono|all of them|all three)\b')
@@ -189,6 +190,12 @@ def parse_budgets(text):
         has_currency = 'inr' in match.group(0)
         return all(has_currency or v >= MIN_BUDGET for v in values)
 
+    for m in EXACT_RE.finditer(text):
+        # "a dress that costs exactly 999": an exact price is both bounds.
+        value = _value(m.group(1))
+        if free(m.span()) and plausible(m, value):
+            found.append(Budget(min_price=value, max_price=value, start=m.start(), end=m.end()))
+            taken.append(m.span())
     for m in RANGE_RE.finditer(text):
         low, high = _value(m.group(1)), _value(m.group(2))
         if free(m.span()) and min(low, high) >= 50 and plausible(m, low, high) and low <= high:

@@ -26,7 +26,7 @@ MAX_RES = [re.compile(p) for p in (
     rf'(?:\s+(?:of|upto|up to|max))?)\s*(?:of\s*)?(?:is\s*)?(?::\s*)?{CUR}{NUM}{TAIL}',
     rf'(?:<=?|≤)\s*{CUR}{NUM}{TAIL}',
     rf'{CUR}{NUM}{TAIL}\s*(?:or less|or under|or below|or cheaper|or lower|and under|and below|max(?:imum)?\b'
-    rf'|budget|tak\b|se kam|se neeche|se niche|ke andar|ke under|ke neeche|ke niche|se sasta|ke budget'
+    rf'|tops\b|budget|tak\b|se kam|se neeche|se niche|ke andar|ke under|ke neeche|ke niche|se sasta|ke budget'
     rf'|se (?:zyada|jyada|jada|upar|oopar) (?:nahi|not)\b)',
 )]
 MIN_RES = [re.compile(p) for p in (
@@ -168,6 +168,9 @@ PLACEHOLDER_OBJECTS = {'stuff', 'thing', 'item', 'clothe', 'clothing', 'garment'
 GENERIC_GARMENT_WORDS = {'shirt', 'top', 'tee', 'tshirt', 'wear', 'set', 'clothe', 'clothing', 'outfit', 'item',
                          'sport', 'sports', 'style', 'piece', 'garment', 'fashion', 'thing', 'stuff'}
 PREPOSITIONS = {'for', 'with', 'to', 'in', 'on', 'at', 'from', 'during', 'like', 'without', 'by', 'near', 'into'}
+# Brand names that are also people: "gloves for my boss" is a gift, not Hugo Boss.
+PERSON_WORDS = {'boss'}
+POSSESSIVES = {'my', 'our', 'his', 'her', 'your', 'their', 'the', 'a'}
 # Words naming when, not what: in "prom night" or "wedding day" the occasion is the head.
 TIME_WORDS = {'night', 'day', 'evening', 'morning', 'afternoon', 'weekend', 'eve', 'time', 'season', 'event',
               'function', 'ceremony', 'celebration'}
@@ -296,6 +299,7 @@ class Signals:
     non_catalog: list = field(default_factory=list)
     corrected: dict = field(default_factory=dict)
     no_baby: bool = False                                 # a stated age of four or more
+    toddler: bool = False                                 # a stated age of two: baby or kids' sizes
     soft_target: float = None
     context: str = ''
     service: bool = False
@@ -374,7 +378,7 @@ class RulePlanner:
                 word = phrase[0]
                 if word in self.vocab.stopwords or word.isdigit():
                     continue
-                if word in BRANDS:
+                if word in BRANDS and not (word in PERSON_WORDS and start and tokens[start - 1] in POSSESSIVES):
                     seg.brands.append(word)
                     continue
                 signals.content_tokens += 1
@@ -551,8 +555,12 @@ class RulePlanner:
             age = int(next(g for g in (age_match.group(1), age_match.group(3), age_match.group(4),
                                        age_match.group(5)) if g))
             unit = age_match.group(2) or 'year'
-            if unit.startswith(('month', 'mth')) or age <= 2:
+            if unit.startswith(('month', 'mth')) or age <= 1:
                 signals.audience.add('baby')
+            elif age == 2:
+                # Sizes 92-98 are both baby and kids' ranges: "potty training my 2 year old".
+                signals.audience.add('kids')
+                signals.toddler = True
             elif age <= 14:
                 signals.audience.add('kids')
                 if age >= 4:
@@ -790,7 +798,7 @@ class RulePlanner:
         plan.audience_group = self._audience(signals.audience)
         plan.exclude_baby = signals.no_baby and plan.audience_group != 'baby'
         if plan.audience_group in ('girls', 'boys', 'kids') and 'baby' not in signals.audience \
-                and not re.search(r'\btoddlers?\b', text):
+                and not signals.toddler and not re.search(r'\btoddlers?\b', text):
             # "a shirt for a boy", "dress for my daughter": a child, not a baby, unless said.
             plan.exclude_baby = True
         per_choice = {self._audience(s.audience) for s in choices_segs if s.audience}

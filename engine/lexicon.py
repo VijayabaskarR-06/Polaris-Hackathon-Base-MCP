@@ -1719,8 +1719,6 @@ STYLE_WORDS = {
     'chunky': ['chunky'],
     'chunky sole': ['chunky sole', 'chunky'],
     'platform': ['platform'],
-    'block heel': ['block heel'],
-    'block heels': ['block heel'],
     'pointed': ['pointed toes'],
     'pointy': ['pointed toes'],
     'pointed toe': ['pointed toes'],
@@ -2828,3 +2826,9 @@ FOREIGN_WORDS.update({
     'bacchar': 'kids', 'chamrar': 'leather', 'brassiere de sport': 'sports bra', 'manches longues': 'long sleeves',
     'body bebe': 'baby bodysuit',
 })
+# Heel shapes are shoes, not only a style word ("comfy block heels for graduation").
+TYPE_WORDS.update({'block heel': (['Heeled sandals', 'Pumps', 'Heels', 'Wedge'], ['block heel', 'heel'])})
+# Dogs by breed or pet name ("for my pug") wear dog clothes.
+TYPE_WORDS.update({w: TYPE_WORDS['dog'] for w in ('pug', 'pooch', 'doggo', 'doggy', 'doggie')})
+# Bengali "chai" is "want" ("kalo chamrar belt chai"), never a chain.
+FOREIGN_WORDS.update({'chai': 'want'})

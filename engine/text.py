@@ -93,6 +93,20 @@ CURRENCY = re.compile(r'₹|\brs\.?(?=\s|\d|$)|\brupees?\b|\binr\b|\binr\.')
 WITH_ABBREVIATION = re.compile(r'\bw/(o\b)?')    # "top w/ matching bottoms", "dress w/o sleeves"
 STRETCHED = re.compile(r'([a-z])\1{2,}')          # "hooooodie", "sooo cute": at most a double letter
 TSHIRT_SLIP = re.compile(r'\bt[\s\-]?(?:shrit|shrt|sirt|shirtt|shrti|sjirt|shitr|shirrt)(s?)\b')   # "t-shrit"
+# Texting "4" for "for" between words ("top 4 new yrs eve party", "shoes 4 men"); never a count,
+# size or age ("pack of 4 socks", "size 4", "4 year old").
+SMS_FOR = re.compile(r'\b([a-z]+) 4 (?=([a-z]+)\b)')
+SMS_FOR_KEEP_BEFORE = {'size', 'of', 'pack', 'set', 'under', 'below', 'inr', 'rs', 'uk', 'us', 'eu', 'age', 'aged',
+                       'only', 'just', 'buy', 'get', 'than', 'upto', 'to', 'and', 'or', 'about', 'around'}
+SMS_FOR_KEEP_AFTER = ('year', 'yr', 'yo', 'month', 'mth', 'pack', 'pk', 'pair', 'pc', 'piece', 'inr', 'rs', 'rupee',
+                      'thousand', 'hundred', 'item', 'set', 'people', 'person', 'day', 'week', 'times', 'colour', 'color')
+
+
+def _sms_for(match):
+    before, after = match.group(1), match.group(2)
+    if before in SMS_FOR_KEEP_BEFORE or after.startswith(SMS_FOR_KEEP_AFTER) or after in ('k', 'x'):
+        return match.group(0)
+    return f'{before} for '
 
 
 EMOJI_WORDS = {
@@ -183,4 +197,5 @@ def normalize_query(query):
     text = NUMBER_K.sub(lambda m: str(int(float(m.group(1)) * 1000)), text)
     text = re.sub(r'(?<=\d)(inr)\b', r' \1', text)
     text = re.sub(r'\binr(?=\d)', 'inr ', text)
+    text = SMS_FOR.sub(_sms_for, text)
     return ' '.join(text.split())

@@ -2678,3 +2678,30 @@ BODY_PART_WORDS['hair'] = (['Hair/alice band', 'Hair clip', 'Hair string', 'Hair
 FOREIGN_WORDS.update({'chamakdaar': 'sparkly', 'chamakdar': 'sparkly', 'chamkila': 'sparkly', 'chamkili': 'sparkly'})
 STOP_PHRASES.update({'downward dog', 'downward facing dog'})
 TYPE_WORDS['jumpsuit'] = (['Jumpsuit/Playsuit'], ['jumpsuit'])
+# Objects the catalog does not sell that share words with products ("cricket bat" vs a tee
+# named Cricket, "bluetooth speaker" one typo from sneaker, "pocket square" vs a tie pack).
+del TYPE_WORDS['pocket square']           # no pocket squares in the catalog: a tie is not one
+NON_CATALOG_WORDS.update({'pocket square', 'pocket squares', 'pocket watch', 'cricket bat', 'baseball bat',
+                          'speaker', 'speakers', 'bluetooth', 'bluetooth speaker', 'charger', 'chargers', 'power bank',
+                          'powerbank', 'tripod', 'drone', 'kettle', 'bedsheet', 'bedsheets', 'curtain', 'curtains',
+                          'stumps', 'wickets', 'shuttlecock', 'cat food', 'dog food', 'pet food'})
+TYPE_WORDS.update({'half pants': (['Shorts'], ['shorts']), 'half pant': (['Shorts'], ['shorts']),
+                   'shades': (['Sunglasses'], ['sunglasses']),
+                   'chhata': (['Umbrella'], ['umbrella']), 'chata': (['Umbrella'], ['umbrella']), 'chhatri': (['Umbrella'], ['umbrella'])})
+# Mood words that describe a look, not an item: "beach vibes" is beachwear.
+STOPWORDS.update(['vibes', 'vibe', 'vibey', 'aesthetic', 'aesthetics', 'mood', 'energy', 'feels'])
+# Indian and Australian English for things the catalog sells.
+TYPE_WORDS.update({'monkey cap': (['Hat/beanie', 'Beanie'], ['balaclava', 'beanie']), 'monkey caps': (['Hat/beanie', 'Beanie'], ['balaclava', 'beanie']),
+                   'sunnies': (['Sunglasses'], ['sunglasses'])})
+# Hinglish filler left after a parsed budget ("budget 3000 se upar nahi").
+STOPWORDS.update(['upar', 'oopar'])
+# Short vowel-dropped spellings the corrector cannot decide ("shrt": shirt or short).
+TYPE_WORDS.update({'shrt': TYPE_WORDS['shirt'], 'tshrt': TYPE_WORDS['tshirt'] if 'tshirt' in TYPE_WORDS else TYPE_WORDS['t-shirt'],
+                   'boxrs': TYPE_WORDS['boxers']})
+# Dates say when, not what: "sangeet hai next saturday" names no item called saturday.
+STOPWORDS.update(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'yesterday', 'january',
+                  'february', 'april', 'june', 'july', 'august', 'september', 'october', 'november', 'december'])
+# A weekday night is a night out ("friday night outfit"), not nightwear.
+for _day in ('friday', 'saturday'):
+    OCCASIONS.update({f'{_day} night': OCCASIONS['night out'], f'{_day} night out': OCCASIONS['night out'],
+                      f'{_day} nights': OCCASIONS['night out']})

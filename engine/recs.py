@@ -41,7 +41,7 @@ COVERS = {'onepiece': {'onepiece', 'top', 'bottom'}, 'top': {'top', 'onepiece'},
           'bottom': {'bottom', 'onepiece'}, 'outer': {'outer'}, 'shoes': {'shoes'}}
 # Bags for chores, not for an outfit ("cosmetic bag", "pencil case").
 UTILITY_WORDS = ['cosmetic', 'case', 'pencil', 'gymbag', 'packable', 'washbag', 'toiletry', 'laptop', 'lunch',
-                 'pouch', 'waistbag', 'bumbag', 'backpack', 'gym']
+                 'pouch', 'waistbag', 'bumbag', 'backpack', 'gym', 'bum', 'fanny']
 # Name words too common to mark a matching line ("basic", "slim").
 NAME_NOISE = {'basic', 'slim', 'regular', 'loose', 'relaxed', 'soft', 'long', 'short', 'pack', 'the', 'and', 'with'}
 
@@ -173,6 +173,13 @@ class Recommender:
         else:
             return [], explicit
         positions = np.flatnonzero(base)
+        comp = plan.complement
+        if len(positions) == 0 and explicit and comp is not None and getattr(comp, 'from_group', False) \
+                and set(comp.product_types) - set(types):
+            # "a hoodie with matching shoes under 1000": no trainers at that price, so any shoe.
+            types = list(comp.product_types)
+            base = mask & type_mask(self.index, types)
+            positions = np.flatnonzero(base)
         stated = bool(getattr(anchor_choice, 'audience_group', None) or plan.audience_group)
         if len(positions) == 0 and explicit and types and not stated:
             # "a white shirt with a matching tie": the shirt is women's, ties are sold for men only;
@@ -207,10 +214,14 @@ class Recommender:
         # Judged data: neutral accessories (black, white, beige, gold, silver) grade at least as
         # well as same-colour ones, so harmony matters and an exact colour match only a little,
         # unless the shopper asked for a matching item.
-        matching = 1.0 if getattr(plan, 'matching', False) else 0.3
+        matching = 3.0 if getattr(plan, 'matching', False) else 0.3
         utility = bm.any_mask(UTILITY_WORDS, names_only=True)[positions]
+        # "a matching clutch": a bag named clutch beats a tote whose description mentions one.
+        name_hit = (bm.any_mask(kw_terms, names_only=True)[positions] if explicit and kw_terms
+                    else np.zeros(len(positions), dtype=bool))
         score = (2.0 * harmony + matching * same_family + 1.5 * bm_norm + 1.0 * kw_hit + 0.3 * rating
-                 + (1.5 if explicit else 0.5) * same_line - 0.6 * np.minimum(type_rank, 5) - 1.5 * utility)
+                 + (1.5 if explicit else 0.5) * same_line - 0.6 * np.minimum(type_rank, 5) - 1.5 * utility
+                 + 2.0 * name_hit)
         est = np.where(harmony & kw_hit, 3, 2)
         if explicit and not kw_terms:
             est = np.where(harmony, 3, 2)
@@ -238,10 +249,30 @@ class Recommender:
             out.append((int(positions[i]), int(est[i]), prior))
         return out, explicit
 
+    def choose_anchor(self, state, page_cands):
+        """The page product every recommendation hangs on: a recommendation only counts when its
+        anchor grades >= 2, so among equally likely products prefer the one that is exactly what
+        was asked for (the stated colour itself rather than a shade, the primary kind rather than
+        a sibling type), then the earliest."""
+        best, best_key = None, None
+        for i, cand in enumerate(page_cands):
+            p = self.products[cand.pid]
+            choice = state.pools[cand.choice].choice if state.pools and 0 <= cand.choice < len(state.pools) else None
+            exact_colour = primary_type = 0
+            if choice is not None:
+                families = getattr(choice, 'color_families', None) or []
+                exact_colour = int(any(f and p['color'] == f[0] for f in families)) if families else 1
+                primary = getattr(choice, 'primary_types', None) or choice.product_types
+                primary_type = int(not primary or p['product_type'] in primary)
+            key = (round(points.p_at_least(cand.probs, 2), 2), primary_type, exact_colour, -i)
+            if best_key is None or key > best_key:
+                best, best_key = cand, key
+        return best
+
     def recommend(self, state, page, grader=None):
         plan = state.plan
         page_cands = [c for c in (state.candidate(pid) for pid in page) if c is not None]
-        anchor = points.choose_anchor(page_cands)
+        anchor = self.choose_anchor(state, page_cands)
         if anchor is None:
             return []
         cache_key = (state.key, anchor.pid, tuple(page))

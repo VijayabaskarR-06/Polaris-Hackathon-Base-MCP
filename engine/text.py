@@ -92,9 +92,25 @@ CURRENCY = re.compile(r'₹|\brs\.?(?=\s|\d|$)|\brupees?\b|\binr\b|\binr\.')
 WITH_ABBREVIATION = re.compile(r'\bw/(o\b)?')    # "top w/ matching bottoms", "dress w/o sleeves"
 
 
+EMOJI_WORDS = {
+    '👶': 'baby', '🍼': 'baby', '👧': 'girl', '👦': 'boy', '👩': 'women', '👨': 'men', '👗': 'dress', '👖': 'jeans',
+    '👟': 'sneakers', '👞': 'shoes', '👠': 'heels', '👡': 'sandals', '👢': 'boots', '🥾': 'boots', '🧥': 'jacket',
+    '👒': 'hat', '🎩': 'hat', '🧢': 'cap', '🕶': 'sunglasses', '👓': 'glasses', '👜': 'bag', '👛': 'purse', '🎒': 'backpack',
+    '🧦': 'socks', '🧤': 'gloves', '🧣': 'scarf', '👔': 'tie', '👕': 'tshirt', '👘': 'robe', '👙': 'bikini', '🩳': 'shorts',
+    '🩱': 'swimsuit', '🩲': 'underwear', '💍': 'ring', '📿': 'necklace', '⌚': 'watch', '☔': 'umbrella', '🌂': 'umbrella',
+    '🐶': 'dog', '🐕': 'dog', '🎃': 'halloween', '🎄': 'christmas', '🏖': 'beach', '🏝': 'beach', '❄': 'winter', '⛄': 'winter',
+    '☀': 'summer', '🌧': 'rain', '🌞': 'summer', '💪': 'gym', '🏋': 'gym', '🧘': 'yoga', '🏃': 'running', '💃': 'party',
+    '🕺': 'party', '👰': 'wedding', '💒': 'wedding', '🎓': 'graduation', '🎁': 'gift', '🎂': 'birthday', '💼': 'office',
+    '🏢': 'office', '✈': 'travel', '🧳': 'travel', '🤰': 'maternity', '🐱': 'cat', '🧸': 'toy', '🔥': '', '😍': '', '🥰': '',
+    '😎': '', '✨': '', '💯': '', '🙏': '', '👍': '', '❤': '', '💕': '', '😊': '', '🙂': '', '😀': '', '😁': '', '🤗': '',
+}
+EMOJI_RE = re.compile('|'.join(re.escape(e) for e in sorted(EMOJI_WORDS, key=len, reverse=True)))
+
+
 def normalize_query(query):
     """Lowercase, fold accents, currency to " inr ", "2,000" -> "2000", "2k" -> "2000"."""
     text = query.replace('₹', ' inr ')
+    text = EMOJI_RE.sub(lambda m: ' ' + EMOJI_WORDS[m.group(0)] + ' ', text)
     text = fold_accents(text).lower()
     text = WITH_ABBREVIATION.sub(lambda m: ' without ' if m.group(1) else ' with ', text)
     text = CURRENCY.sub(' inr ', text)

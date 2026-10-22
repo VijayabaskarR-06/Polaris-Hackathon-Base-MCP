@@ -152,12 +152,32 @@ class SpellFixer:
     query word ("jeens") is matched against "jeans" before stemming.
     """
 
+    # Spellings the query normaliser rewrites before matching; a typo in them ("pajjamas")
+    # must still land on the canonical shopper word.
+    ALIASES = {'pajama': 'pyjama', 'pajamas': 'pyjama', 'hoody': 'hoodie', 'hoodys': 'hoodie', 'tshirt': 'tshirt',
+               'teeshirt': 'tshirt', 'sweatshirt': 'sweatshirt', 'flipflop': 'flipflop', 'flipflops': 'flipflop',
+               'handbag': 'handbag', 'handbags': 'handbag', 'backpack': 'backpack', 'backpacks': 'backpack',
+               'earring': 'earring', 'earrings': 'earring', 'waterbottle': 'waterbottle', 'raincoat': 'raincoat',
+               'raincoats': 'raincoat', 'jumpsuit': 'jumpsuit', 'jumpsuits': 'jumpsuit', 'bodysuit': 'bodysuit',
+               'bodysuits': 'bodysuit', 'swimsuit': 'swimsuit', 'swimsuits': 'swimsuit', 'nightgown': 'nightgown',
+               'nightie': 'nightgown', 'nighty': 'nightgown', 'sneaker': 'sneaker', 'sneakers': 'sneaker'}
+
     def __init__(self, term_freq, protected):
         self.freq = term_freq
         self.protected = protected      # lexicon terms win ties: they are shopper words
         self.surface = {}               # surface form -> stem
-        for term in term_freq:
-            for form in (term, term + 's'):
+        for form, term in self.ALIASES.items():
+            if term in term_freq or term in protected:
+                self.surface.setdefault(form, term)
+        # Shopper words claim their surface forms first: "sunglasses" is the lexicon's
+        # "sunglass", not the plural of a catalog misspelling "sunglasse".
+        for term in sorted(term_freq, key=lambda t: (t not in protected, t)):
+            forms = [term, term + 's']
+            if term.endswith(('s', 'x', 'ch', 'sh')):
+                forms.append(term + 'es')          # sunglass -> sunglasses
+            if term.endswith('y') and len(term) > 2 and term[-2] not in 'aeiou':
+                forms.append(term[:-1] + 'ies')    # hoody -> hoodies
+            for form in forms:
                 self.surface.setdefault(form, term)
         self.deletes = defaultdict(list)
         for form in self.surface:
@@ -199,6 +219,8 @@ class SpellFixer:
             term = self.surface[form]
             if d == 2 and not (term in self.protected or self.freq.get(term, 0) >= 200):
                 continue
+            if d == 2 and form[:2] != token[:2]:
+                continue          # two slips never both land at the start: "speaker" is not "sneaker"
             # A shopper-lexicon word one edit further beats a rare catalog token
             # ("swimsute" -> swimsuit, not the catalog's misspelling "swimsuite").
             rank = (d + (term not in self.protected), term not in self.protected, -self.freq.get(term, 0), term)
@@ -388,6 +410,14 @@ class Vocab:
             text = re.sub(r'\brobes?\b', 'dress', text)
             text = re.sub(r'\broses?\b', 'pink', text)
             text = re.sub(r'\b(?:son|sa)\b', ' ', text)
+            # Budgets and joins: "entre 4000 et 6000", "a moins de 1500", "jusqu'a 2000".
+            text = re.sub(r'\bentre\s+(\S+)\s+et\s+(?=\S)', r'between \1 and ', text)
+            text = re.sub(r"\b(?:a\s+|à\s+)?moins\s+(?:de|que)\b", 'under', text)
+            text = re.sub(r"\bjusqu\W*a\b", 'up to', text)
+            text = re.sub(r'\bplus\s+de\b', 'over', text)
+            text = re.sub(r'\bet\b', 'and', text)
+            text = re.sub(r'\broupies?\b', 'rupees', text)
+            text = re.sub(r'\bchemis+es?\b', 'shirt', text)
         text = self.foreign_re.sub(lambda m: self.foreign[' '.join(re.split(r'[\s\-]+', m.group(0)))], text)
         return WORD_RE.sub(self._inflected, text)
 

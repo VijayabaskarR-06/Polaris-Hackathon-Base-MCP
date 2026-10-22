@@ -44,7 +44,7 @@ COMPLEMENT_RE = re.compile(
     rf'(?:\b(?:with|and|plus|along with|together with|n)\b|[+&,]|(?<=[.!?])|(?<=[.!?]\s))\s*(?:it\s+|them\s+)?'
     rf'(?:a |an |some |the |pair of |a pair of )?(?:(?:nice|cute|good|suitable) )?{MATCH_WORDS}\b'
     r'|\b(?:with|and)\s+(?:a |an |some )?(?:(?:nice|cute|good|suitable) )?accessor(?:y|ies) (?:to match|for it|for that)'
-    r'|\baccessori[sz]e (?:it )?with|\bcomplete (?:the|my) look with')
+    r'|\baccessori[sz]e (?:it )?with|\bcomplete (?:the|my) look with|\bpaired with\b')
 MATCH_WORD_RE = re.compile(rf'match|{MATCH_WORDS}|coordinat')
 # "a bag to match", "con aretes a juego" (with earrings matching): the complement sits between.
 WITH_TO_MATCH_RE = re.compile(rf'\bwith\s+(?:a |an |some |the )?(.+?)\s+(?:to match|{MATCH_WORDS}|that match(?:es)?)\b')
@@ -135,10 +135,15 @@ CHILD_GIFT_TYPES = ['Giftbox', 'Soft Toys', 'Bodysuit', 'Garment Set', 'Sleeping
 SERVICE_VERBS = {'book', 'booking', 'reserve', 'reservation', 'rent', 'rental', 'hire', 'cancel', 'refund',
                  'deliver', 'delivery', 'download', 'install', 'subscribe', 'schedule', 'cook', 'bake', 'fix',
                  'repair', 'calculate', 'translate', 'convert', 'stream', 'invest', 'pay', 'order', 'track',
-                 'recipe', 'news', 'score', 'lyrics', 'directions', 'appointment'}
+                 'recipe', 'news', 'score', 'lyrics', 'directions', 'appointment', 'service', 'servicing'}
 # Asking for the weather is a service; dressing for it ("something for very hot weather") is shopping.
 FORECAST_RE = re.compile(r"\b(?:weather|forecast|temperature)\s+(?:today|tomorrow|tonight|this week|now|in|at)\b"
-                         r"|\b(?:how|what)(?:'s|s| is| will be)\s+the\s+weather\b")
+                         r"|\b(?:how|what)(?:'s|s| is| will be)\s+the\s+weather\b"
+                         r"|\bwill it (?:rain|snow|be (?:hot|cold|sunny|rainy|windy))\b|\bis it (?:raining|snowing|going to rain)\b"
+                         r"|\b(?:rain|snow)\s+(?:today|tomorrow|tonight)\b|\bchance of (?:rain|snow)\b"
+                         r"|\b(?:news|headlines|breaking news)\b")
+# Questions that are never a shopping request, whatever else they mention.
+NONSHOPPING_QUESTION_RE = re.compile(r"^\s*(?:who|whom|whose|when|why)\b")
 QUESTION_RE = re.compile(r"^\s*(?:how|what|why|when|where|who|which|whats|what's|is|are|do|does|did|can|could|"
                          r"will|would|should)\b")
 PET_TYPES = {'Dog Wear', 'Dog wear'}
@@ -148,7 +153,8 @@ CHILD_CONTEXT_RE = re.compile(r'\b(?:daughter|niece|little|toddler|kid|kids|chil
                               r'years old|yr old|granddaughter|beti)\b')
 # Words whose singular is an adjective while the plural names a garment.
 ADJECTIVE_FORMS = {'short', 'tight'}
-IDIOM_RE = re.compile(r"\b(?:over the top|on top of|top notch|top-notch|tip top|on top)\b")
+IDIOM_RE = re.compile(r"\b(?:over the top|on top of|top notch|top-notch|tip top|on top"
+                      r"|top (?:news|stories|story|headlines|\d+|ten|five|picks|rated|selling|trending|deals|tips|songs|movies|scorer))\b")
 BACK_REFERENCES = {'it', 'them', 'this', 'that', 'these', 'those', 'one', 'it too', 'them too'}
 # "unicorn stuff", "cute things": the object is "clothing in general".
 PLACEHOLDER_OBJECTS = {'stuff', 'thing', 'item', 'clothe', 'clothing', 'garment', 'apparel', 'gear', 'kit',
@@ -488,6 +494,8 @@ class RulePlanner:
         words = {stem(t) for t in raw_tokens(text)}
         signals.service = bool(words & SERVICE_VERBS) or bool(FORECAST_RE.search(text))
         signals.question = bool(QUESTION_RE.match(text))
+        if NONSHOPPING_QUESTION_RE.match(text) and not REQUEST_RE.search(text):
+            signals.service = True        # "who won the 2011 cricket world cup"
         for age_match in AGE_RE.finditer(text):
             age = int(next(g for g in (age_match.group(1), age_match.group(3), age_match.group(4),
                                        age_match.group(5)) if g))
@@ -572,7 +580,7 @@ class RulePlanner:
                     main_end, comp_start, comp_end = sm.start(), sm.end(), main_end
                     break
         if comp_start is None and (not cm or back_reference):
-            found = self._with_item(clean[:main_end])
+            found = self._with_item(clean[:main_end], loose=back_reference)
             if found is not None:
                 accompany, after_types = found
                 if own is not None and own.start() < accompany:
@@ -677,6 +685,10 @@ class RulePlanner:
                 last = [x for x in segments if backref_at is None or x.end <= backref_at + 1]
                 if len(last) >= 2 and not last[-1].has_type and last[-1].non_catalog:
                     missing_complement = True
+        if complement is not None and complement.budgets:
+            # "sneakers and a tie to go with it under 3000": the accompaniment's own budget is not
+            # one of the main items' budgets (it still bounds them per item, below).
+            main_budgets = [b for b in main_budgets if all(b is not x for x in complement.budgets)]
         if len(choices_segs) > 1 and (each or len(main_budgets) == 1):
             for s in choices_segs:
                 # "a blazer, trousers and pumps, plus a belt under 1000": one stated budget is shared
@@ -719,6 +731,10 @@ class RulePlanner:
         plan = Plan(source='rules')
         plan.audience_group = self._audience(signals.audience)
         plan.exclude_baby = signals.no_baby and plan.audience_group != 'baby'
+        if plan.audience_group in ('girls', 'boys', 'kids') and 'baby' not in signals.audience \
+                and not re.search(r'\btoddlers?\b', text):
+            # "a shirt for a boy", "dress for my daughter": a child, not a baby, unless said.
+            plan.exclude_baby = True
         per_choice = {self._audience(s.audience) for s in choices_segs if s.audience}
         for s in choices_segs:
             choice = self._choice(s, signals)
@@ -745,25 +761,37 @@ class RulePlanner:
         signals.brands = [w for s in asked for w in s.brands]
         signals.non_catalog = [w for s in asked for w in s.non_catalog]
         signals.sections = [x for s in asked for x in s.sections]
-        plan.kind = self._kind(plan, segments, signals)
+        if {'men', 'boys'} & signals.audience and any('Mama' in (getattr(c, 'required_sections', None) or [])
+                                                        for c in plan.choices):
+            plan.kind = 'nonsense'        # maternity wear for a man: an impossible requirement
+        else:
+            plan.kind = self._kind(plan, segments, signals)
         plan.notes.append(signals)
         return plan
 
-    def _with_item(self, text):
+    def _with_item(self, text, loose=False):
         """(position, item types) of a bare "with" that introduces a separate product ("black
-        dress with gold earrings"), or None. "dress with pockets" is a feature, not an item."""
+        dress with gold earrings"), or None. "dress with pockets" is a feature, not an item.
+
+        loose: the text goes on to say the item accompanies ("a sweater with a shirt to go with
+        it"), so a same-category item or a group word ("jewellery") counts too.
+        """
         for w in re.finditer(r'\bwith\b', text):
             if re.search(r'\b(?:along|together)\s*$', text[:w.start()]):
                 continue          # "along with" joins two choices
             before = self.analyze(Segment(0, w.start(), text[:w.start()]), Signals())
             after = self.analyze(Segment(0, 0, re.split(r'[,.;!?]', text[w.end():])[0]), Signals())
-            if (before.has_type and after.types and self.head_kind(after, after.prep_at) == 'type'
-                    and not set(after.types) & set(before.types + before.group_types)
-                    and not self.vocab.categories_of(after.types) & self.vocab.categories_of(
-                        before.types + before.group_types)):
+            after_types = after.types or (after.group_types if loose else [])
+            if not (before.has_type and after_types):
+                continue
+            if not set(after_types) & set(before.types + before.group_types) and (
+                    (loose and self.head_kind(after, after.prep_at) in ('type', 'type_group'))
+                    or (self.head_kind(after, after.prep_at) == 'type'
+                        and not self.vocab.categories_of(after_types) & self.vocab.categories_of(
+                            before.types + before.group_types))):
                 # "dress with gold earrings": another category is an accompanying item;
                 # "boots with a heel" stays within shoes, so the heel is a feature.
-                return w.start(), list(after.types)
+                return w.start(), list(after_types)
         return None
 
     def _for_context(self, text):

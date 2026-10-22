@@ -23,7 +23,7 @@ from engine.constraints import hard_mask, type_mask
 from engine.recs import Recommender
 from engine.retrieve import BM25
 from engine.rules import RulePlanner, signals_of
-from engine.text import tokenize
+from engine.text import stem, tokenize
 from engine.vocab import Vocab
 
 log = logging.getLogger('polaris.engine')
@@ -224,6 +224,13 @@ class SemanticEngine:
         if signals.brands:
             return self.abstained(key, plan, 'brand not in catalog: ' + ','.join(signals.brands))
         explicit_types = any(c.product_types and not getattr(c, 'occasion_types', False) for c in plan.choices)
+        if explicit_types and signals.service and signals.corrected:
+            # "repair my scooter's brakes": a product named only by a spelling "correction"
+            # (brakes -> braces) does not turn a service request into shopping.
+            fixed = set(signals.corrected.values())
+            typed = [w for c in plan.choices for w in getattr(c, 'type_words', [])]
+            if typed and all(stem(w.split()[-1]) in fixed or w in fixed for w in typed):
+                explicit_types = False
         if not explicit_types and signals.service:
             return self.abstained(key, plan, 'service request, no product named')
         if not explicit_types and signals.question and not any(getattr(c, 'occasion', False) for c in plan.choices):

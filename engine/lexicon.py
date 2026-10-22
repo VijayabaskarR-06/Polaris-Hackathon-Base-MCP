@@ -2832,3 +2832,15 @@ TYPE_WORDS.update({'block heel': (['Heeled sandals', 'Pumps', 'Heels', 'Wedge'],
 TYPE_WORDS.update({w: TYPE_WORDS['dog'] for w in ('pug', 'pooch', 'doggo', 'doggy', 'doggie')})
 # Bengali "chai" is "want" ("kalo chamrar belt chai"), never a chain.
 FOREIGN_WORDS.update({'chai': 'want'})
+# One-word names for things the catalog sells under other words.
+TYPE_WORDS.update({
+    'capri': (['Trousers', 'Leggings/Tights'], ['capri', 'cropped']),
+    'blouson': (['Jacket'], ['bomber']),
+    'gladiator': (['Sandals', 'Heeled sandals'], ['gladiator', 'strappy']),
+    'legwarmer': (['Leg warmers', 'Socks', 'Other accessories'], ['legwarmers', 'leg warmers']),
+    'fannypack': (['Bumbag', 'Bag'], ['bumbag', 'waist bag']),
+    'catsuit': (['Jumpsuit/Playsuit'], ['catsuit']),
+    'unitard': (['Jumpsuit/Playsuit', 'Bodysuit'], ['unitard', 'catsuit']),
+    'hijab': (['Scarf', 'Hair/alice band'], ['scarf', 'headscarf']),
+})
+FOREIGN_WORDS.update({'sarouel': 'baggy trousers', 'kolhapuri': 'leather sandals'})

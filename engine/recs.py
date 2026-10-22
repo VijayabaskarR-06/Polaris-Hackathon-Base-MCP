@@ -47,6 +47,24 @@ COVERS = {'onepiece': {'onepiece', 'top', 'bottom'}, 'top': {'top', 'onepiece'},
 # Bags for chores, not for an outfit ("cosmetic bag", "pencil case").
 UTILITY_WORDS = ['cosmetic', 'case', 'pencil', 'gymbag', 'packable', 'washbag', 'toiletry', 'laptop', 'lunch',
                  'pouch', 'waistbag', 'bumbag', 'backpack', 'gym', 'bum', 'fanny']
+# The setting of the main item, read from its occasion cues, decides which bags suit it: a clutch
+# for dinner, a tote for work, straw for the beach (name words: suits it, looser match).
+SETTING_CUES = {
+    'evening': {'satin', 'lace', 'chiffon', 'sequin', 'sequins', 'glittery', 'velvet', 'metallic', 'party', 'sparkly',
+                'evening', 'tulle', 'off-the-shoulder', 'cocktail', 'embellished'},
+    'work': {'tailored', 'blazer', 'creases', 'suit'},
+    'beach': {'beach', 'kaftan', 'straw', 'swim'},
+}
+BAG_FIT = {
+    'evening': (['clutch', 'evening', 'mini', 'small', 'chain', 'satin', 'sequin', 'metallic', 'velvet', 'frame',
+                 'envelope', 'baguette', 'beaded', 'pearl'],
+                ['weekend', 'shopper', 'tote', 'backpack', 'beach', 'straw', 'bucket', 'canvas', 'gym', 'sport',
+                 'holdall', 'laptop', 'net', 'raffia', 'jute', 'denim', 'summer']),
+    'work': (['tote', 'shopper', 'shoulder', 'leather', 'laptop', 'satchel', 'structured'],
+             ['beach', 'straw', 'sequin', 'glitter', 'net', 'raffia', 'gym', 'sport', 'bum']),
+    'beach': (['straw', 'beach', 'raffia', 'net', 'tote', 'shopper', 'canvas', 'jute'],
+              ['sequin', 'velvet', 'satin', 'laptop']),
+}
 # Name words too common to mark a matching line ("basic", "slim").
 NAME_NOISE = {'basic', 'slim', 'regular', 'loose', 'relaxed', 'soft', 'long', 'short', 'pack', 'the', 'and', 'with'}
 
@@ -261,6 +279,31 @@ class Recommender:
         if explicit:
             est = np.where(busy, np.minimum(est, 2), est)
             est = np.where(wrong_kind, 1, est)
+        if explicit and kw_terms and getattr(comp, 'needs_keyword', False):
+            # "a matching clutch": a bag named clutch is one; a cross-body bag whose description
+            # mentions a clutch is a looser match, whatever its colour.
+            score = score + 3.0 * name_hit
+            est = np.where(name_hit, est, np.minimum(est, 2))
+        cues = set(tokenize(' '.join(getattr(anchor_choice, 'soft_words', None) or [])))
+        setting = next((s for s, words in SETTING_CUES.items() if cues & set(tokenize(' '.join(words)))), None)
+        if setting and set(types) & {'Bag', 'Shoulder bag', 'Cross-body bag', 'Tote bag'}:
+            # "a dress for dinner with a matching bag": a weekend bag or a summer bucket bag is not one,
+            # and a "mini bucket" or a "straw clutch" is still casual.
+            suits, loose = BAG_FIT[setting]
+            fit = bm.any_mask(suits, names_only=True)[positions]
+            misfit = bm.any_mask(loose, names_only=True)[positions]
+            score = score + 1.5 * fit - 2.5 * misfit
+            if explicit:
+                est = np.where(misfit, np.minimum(est, 2), est)
+        if setting == 'work':
+            # A bow tie, a glitter tie or a sequin bag is for a party, not the office.
+            flashy = np.isin(self.engine.pattern_names[self.index.codes['pattern'][positions]],
+                             ['Glittering/Metallic', 'Metallic', 'Sequin', 'Hologram'])
+            if 'Tie' in types:
+                flashy = flashy | bm.any_mask(['bow', 'bowtie'], names_only=True)[positions]
+            score = score - 2.5 * flashy
+            if explicit:
+                est = np.where(flashy, np.minimum(est, 2), est)
         order = np.lexsort((positions, -score))
         chosen, per_type = [], {}
         # Implicit complements: spread across complement types so one weak type can't sink all five;

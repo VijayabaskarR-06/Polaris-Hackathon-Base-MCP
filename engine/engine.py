@@ -35,6 +35,10 @@ EVIDENCE_COVERAGE = 0.6
 DRESSY_TERMS = {'satin', 'sequin', 'velvet', 'lace', 'chiffon', 'metallic', 'glitter', 'glittery', 'sparkly',
                 'shimmer', 'shimmering', 'tulle', 'beaded', 'embellished', 'silk', 'crepe', 'organza', 'jacquard',
                 'pleated', 'party'}
+# "a shirt for work with a matching tie": a resort, grandad-collar or slogan shirt is casual wear.
+WORK_TERMS = {'tailored', 'blazer', 'crease', 'suit'}
+CASUAL_WORDS = ['resort', 'hawaiian', 'beach', 'grandad', 'mandarin', 'graphic', 'slogan', 'ripped', 'distressed',
+                'cargo', 'jogger', 'festival', 'pyjama', 'lounge', 'hoodie', 'tie-dye', 'denim']
 # In a mixed request each item is one part of an outfit: plain items in the stated colour from
 # mainline sections are the direct match; these are looser unless the shopper asked for them.
 NICHE_SECTIONS = {'Mama', 'H&M+'}
@@ -524,6 +528,8 @@ class SemanticEngine:
             score = score - 1.5 * niche - 1.0 * under
             if not choice.patterns:
                 score = score - 1.0 * self.busy[positions]
+            if occasion_cue and set(soft) & WORK_TERMS:
+                score = score - 2.0 * bm.any_mask(CASUAL_WORDS)[positions]
             if tm is not None and not occasion_types:
                 # "a red top": a product typed Top whose description opens "Short dress in sequined
                 # velvet" is judged "a dress, not a top"; a "quilted jersey cardigan" is not a jacket.

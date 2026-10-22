@@ -13,6 +13,10 @@ from engine.text import normalize_query, raw_tokens, stem, tokenize
 NUM = r'(\d+(?:\.\d+)?)'
 CUR = r'(?:inr\s*)?'
 TAIL = r'(?:\s*inr)?(?:\s*/-)?'
+# Words that may stand between a negation and the item it negates ("not any dresses").
+NEGATION_FILLERS = {'an', 'the', 'any', 'some', 'more', 'those', 'these', 'such', 'one', 'ones'}
+WOMENS_ACCOMPANIMENTS = {'Bag', 'Shoulder bag', 'Cross-body bag', 'Tote bag', 'Earring', 'Earrings', 'Necklace',
+                         'Heels', 'Pumps', 'Heeled sandals', 'Wedge', 'Hair/alice band', 'Hair clip'}
 STRICT_MAX_RE = re.compile(r'(?:under|below|beneath|less than|lesser than|lower than|cheaper than|for less than|for under|<(?!=))')
 MAX_RES = [re.compile(p) for p in (
     rf'\b(?:under|below|beneath|less than|lesser than|lower than|up ?to|upto|till|within|max(?:imum)?'
@@ -253,6 +257,7 @@ class Segment:
     styles: list = field(default_factory=list)
     descriptors: list = field(default_factory=list)
     exclude_words: list = field(default_factory=list)
+    exclude_types: list = field(default_factory=list)   # "anything but jeans": Trousers
     occasions: list = field(default_factory=list)
     sections: list = field(default_factory=list)
     unknown: list = field(default_factory=list)
@@ -329,6 +334,7 @@ class RulePlanner:
                     and any(k in ('type', 'type_group') for k, _ in there[2])):
                 modifiers.add(i)
         negate_until = -1
+        negation_end = -10
         prep_at = next((i for i, t in enumerate(tokens) if t in PREPOSITIONS), len(tokens))
         seg.prep_at = prep_at
         for idx, (start, end, entries) in enumerate(spans):
@@ -359,6 +365,7 @@ class RulePlanner:
                 continue
             if 'negation' in kinds and len(kinds) == 1:
                 negate_until = end + 2
+                negation_end = end
                 continue
             if not entries:
                 word = phrase[0]
@@ -384,6 +391,28 @@ class RulePlanner:
                     seg.descriptors.append(STYLE_TYPE_PHRASES[pair])
                     signals.content_tokens += 1
                     continue
+            right_after = negated and all(t in NEGATION_FILLERS for t in tokens[negation_end:start])
+            head = [p for k, p in self.m.entries.get((phrase[-1],), []) if k == 'type'] if end - start > 1 else []
+            if right_after and head and any(k == 'type' for k, _ in entries):
+                # "i hate skinny jeans": the style is unwanted, not the jeans.
+                seg.exclude_words.append(' '.join(phrase[:-1]))
+                types, keywords = head[0]
+                seg.types += [t for t in types if t not in seg.types]
+                if types and types[0] not in seg.primary_types:
+                    seg.primary_types.append(types[0])
+                seg.type_words.append(phrase[-1])
+                seg.type_keywords += [k for k in keywords if k not in seg.type_keywords]
+                signals.content_tokens += 1
+                continue
+            if right_after and any(k in ('type', 'type_group') for k, _ in entries):
+                # "something other than jeans for a party", "not a dress, maybe a jumpsuit": the
+                # item named right after a negation is what the shopper does not want.
+                for kind, payload in entries:
+                    if kind in ('type', 'type_group'):
+                        seg.exclude_types += [t for t in payload[0] if t not in seg.exclude_types]
+                seg.exclude_words.append(' '.join(phrase))
+                signals.content_tokens += 1
+                continue
             for kind, payload in entries:
                 if kind == 'type':
                     types, keywords = payload
@@ -430,6 +459,8 @@ class RulePlanner:
                     signals.content_tokens += 1
                     if not negated:
                         seg.styles.append((' '.join(phrase), list(payload)))
+                    else:
+                        seg.exclude_words.append(' '.join(phrase))
                 elif kind == 'occasion':
                     signals.content_tokens += 1
                     seg.occasions.append(payload)
@@ -776,6 +807,8 @@ class RulePlanner:
             # "a white shirt with a matching tie": ties are men's, so the shirt most likely is too;
             # "a top with matching earrings" is a woman's. A preference, never a requirement.
             known = {self.vocab.type_gender.get(t) for t in plan.complement.product_types} - {None}
+            if not known and set(plan.complement.product_types) & WOMENS_ACCOMPANIMENTS:
+                known = {'women'}    # "shoes for a wedding with a matching bag": a woman's outfit
             if len(known) == 1:
                 for choice in plan.choices:
                     choice.prefer_group = next(iter(known))
@@ -1002,7 +1035,7 @@ class RulePlanner:
         if not target.content and other.content:
             target.content, target.prep_at = list(other.content), other.prep_at
             target.content_words = list(other.content_words)
-        for name in ('types', 'primary_types', 'hint_types', 'match_terms', 'type_words', 'type_keywords', 'group_types', 'colors',
+        for name in ('types', 'primary_types', 'hint_types', 'match_terms', 'type_words', 'type_keywords', 'group_types', 'exclude_types', 'colors',
                      'exclude_colors', 'patterns',
                      'exclude_patterns', 'materials', 'styles', 'descriptors', 'exclude_words', 'occasions',
                      'sections', 'unknown', 'brands', 'non_catalog', 'budgets'):
@@ -1054,9 +1087,11 @@ class RulePlanner:
             shared = [t for t in occasion_types if all(t in ts for ts in type_sets)]
             if shared:
                 occasion_types = shared
-        if seg.group_types and not seg.types and occasion_types:
-            # "shoes for the gym", "shoes for the beach": the occasion says which of the group's kinds.
-            narrowed = [t for t in seg.group_types if t in occasion_types]
+        footwear = [t for occ in seg.occasions for t in occ.get('footwear', [])]
+        if seg.group_types and not seg.types and (occasion_types or footwear):
+            # "shoes for the gym", "shoes for the beach", "shoes for a wedding": the occasion says
+            # which of the group's kinds (dressy shoes for a wedding, not flip-flops).
+            narrowed = [t for t in seg.group_types if t in occasion_types or t in footwear]
             if narrowed:
                 types = narrowed
         group = self._audience(seg.audience) or self._audience(signals.audience)
@@ -1111,6 +1146,9 @@ class RulePlanner:
         choice.type_words = list(seg.type_words)
         choice.occasion = bool(seg.occasions)
         choice.strict_max = strict_max
+        choice.exclude_types = list(seg.exclude_types)
+        if choice.exclude_types:
+            choice.product_types = [t for t in choice.product_types if t not in choice.exclude_types]
         # "haldi": a ceremony's traditional colour is a strong preference unless a colour was stated.
         choice.soft_colors = [] if colors or exclude_colors else occasion_colors
         choice.generic = seg.generic

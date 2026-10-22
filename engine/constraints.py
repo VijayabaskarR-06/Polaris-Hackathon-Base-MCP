@@ -93,6 +93,8 @@ def hard_mask(index, vocab, filters, plan, choice, support=None):
             if np.count_nonzero(pool) >= 10:
                 price = strict
         mask = _apply(mask, price, info, 'budget', ('min_price', 'max_price'), filters)
+    if getattr(choice, 'exclude_types', None):
+        mask = _apply(mask, ~type_mask(index, choice.exclude_types), info, 'exclude_types', ('product_type',), filters)
     if choice.exclude_colors:
         mask = _apply(mask, ~_codes_mask(index, 'color', choice.exclude_colors), info, 'exclude_colors',
                       ('color',), filters)

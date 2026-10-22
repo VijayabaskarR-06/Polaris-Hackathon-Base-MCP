@@ -118,6 +118,17 @@ class EngineTests(unittest.TestCase):
                 first = [self.products[i]['product_type'] for i in ids[:2]]
                 self.assertEqual(len(set(first)), 2, first)
 
+    def test_negated_items_are_left_out(self):
+        types = {self.products[i]['product_type'] for i in self.ids(query='something other than jeans for a party')}
+        self.assertNotIn('Trousers', types)
+        types = {self.products[i]['product_type'] for i in self.ids(query='not a dress, maybe a jumpsuit')}
+        self.assertEqual(types, {'Jumpsuit/Playsuit'})
+        ids = self.ids(query='i hate skinny jeans')
+        self.assertTrue(ids)
+        self.assertFalse(any('skinny' in (self.products[i]['name'] + self.products[i]['description']).lower()
+                             for i in ids))
+        self.assertEqual({self.products[i]['product_type'] for i in self.ids(query='no show socks')}, {'Socks'})
+
     def test_ceremony_colours(self):
         for query, family in (('haldi', 'Yellow'), ('mehendi', 'Green'), ('karwa chauth', 'Red')):
             with self.subTest(query=query):

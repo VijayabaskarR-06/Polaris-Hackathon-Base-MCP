@@ -11,6 +11,7 @@ to the rule plan and rule estimates, so a valid call never errors or times out.
 import json
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -82,6 +83,23 @@ def p_answerable(ranked, k=10):
     make ten weak products look almost surely answerable and never abstain.
     """
     return max((points.p_at_least(c.probs, 2) for c in ranked[:k]), default=0.0)
+
+
+# The garment a description opens with ("Short, straight-cut dress in sequined velvet").
+DESCRIBED = [('hooded top', 'Hoodie'), ('hooded jumper', 'Hoodie'), ('t-shirt', 'T-shirt'), ('tank top', 'Vest top'),
+             ('dress', 'Dress'), ('skirt', 'Skirt'), ('trousers', 'Trousers'), ('jeans', 'Trousers'),
+             ('joggers', 'Trousers'), ('shorts', 'Shorts'), ('jacket', 'Jacket'), ('coat', 'Coat'),
+             ('blazer', 'Blazer'), ('cardigan', 'Cardigan'), ('jumper', 'Sweater'), ('sweater', 'Sweater'),
+             ('blouse', 'Blouse'), ('shirt', 'Shirt'), ('top', 'Top'), ('hoodie', 'Hoodie'),
+             ('jumpsuit', 'Jumpsuit/Playsuit'), ('playsuit', 'Jumpsuit/Playsuit'), ('bodysuit', 'Bodysuit')]
+DESCRIBED_RE = re.compile(r'\b(' + '|'.join(re.escape(w) for w, _ in DESCRIBED) + r')s?\b')
+DESCRIBED_TYPE = dict(DESCRIBED)
+
+
+def described_type(description):
+    first = re.split(r'[.;]', description.lower(), maxsplit=1)[0]
+    m = DESCRIBED_RE.search(first)
+    return DESCRIBED_TYPE[m.group(1)] if m else ''
 
 
 def lead_with_each_choice(ranked, n_choices, k=10):
@@ -169,6 +187,7 @@ class SemanticEngine:
         self.busy = np.isin(pattern_of, list(BUSY_PATTERNS))
         self.color_names = np.asarray(index.values['color'], dtype=object)
         self.pattern_names = np.asarray(index.values['pattern'], dtype=object)
+        self.described_type = np.asarray([described_type(p.get('description') or '') for p in products], dtype=object)
         self.recommender = Recommender(self)
         self.llm = llm
         self.planner = self.twin = None
@@ -503,8 +522,14 @@ class SemanticEngine:
             if type_hit.any() and under[type_hit].mean() >= 0.3:
                 under = zeros        # socks, bras, pyjamas: their own sections are the right ones
             score = score - 1.5 * niche - 1.0 * under
-            if choice.colors and not choice.patterns:
+            if not choice.patterns:
                 score = score - 1.0 * self.busy[positions]
+            if tm is not None and not occasion_types:
+                # "a red top": a product typed Top whose description opens "Short dress in sequined
+                # velvet" is judged "a dress, not a top"; a "quilted jersey cardigan" is not a jacket.
+                named = self.described_type[positions]
+                other_kind = (named != '') & ~np.isin(named, list(types) + ['Hoodie' if 'Sweater' in types else ''])
+                score = score - 2.0 * other_kind
         est = np.ones(len(positions), dtype=np.int64)
         if tm is not None and not occasion_types:
             est[type_hit | name_hit] = 2

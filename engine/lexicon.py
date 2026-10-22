@@ -1759,7 +1759,7 @@ STYLE_WORDS = {
 _OFFICE = {'types': ['Blazer', 'Trousers', 'Shirt', 'Blouse', 'Skirt', 'Dress'],
            'keywords': ['tailored', 'suit trousers', 'blazer', 'creases', 'collar'],
            'sections': ['Womens Tailoring', 'Men Suits & Tailoring', 'Contemporary Smart'],
-           'audience': None}
+           'audience': None, 'footwear': ['Heels', 'Pumps', 'Heeled sandals', 'Wedge', 'Ballerinas', 'Flat shoe', 'Flat shoes', 'Other shoe']}
 _SMART_CASUAL = {'types': ['Shirt', 'Blouse', 'Trousers', 'Blazer', 'Polo shirt', 'Sweater'],
                  'keywords': ['chinos', 'oxford', 'tailored', 'linen', 'fine-knit'],
                  'sections': ['Contemporary Smart', 'Contemporary Casual', 'Womens Casual'],
@@ -1767,23 +1767,23 @@ _SMART_CASUAL = {'types': ['Shirt', 'Blouse', 'Trousers', 'Blazer', 'Polo shirt'
 _FORMAL = {'types': ['Blazer', 'Trousers', 'Shirt', 'Dress', 'Tie', 'Tailored Waistcoat'],
            'keywords': ['tailored', 'suit', 'satin', 'suit trousers', 'double-breasted'],
            'sections': ['Men Suits & Tailoring', 'Womens Tailoring', 'Womens Premium'],
-           'audience': None}
+           'audience': None, 'footwear': ['Heels', 'Pumps', 'Heeled sandals', 'Wedge', 'Ballerinas', 'Flat shoe', 'Flat shoes', 'Other shoe']}
 _PARTY = {'types': ['Dress', 'Top', 'Skirt', 'Jumpsuit/Playsuit', 'Blouse'],
           'keywords': ['sequins', 'glittery', 'satin', 'party', 'sparkly', 'velvet', 'metallic'],
           'sections': ['Divided Selected', 'Womens Trend', 'Divided Projects'],
-          'audience': None}
+          'audience': None, 'footwear': ['Heels', 'Pumps', 'Heeled sandals', 'Wedge', 'Ballerinas', 'Flat shoe', 'Flat shoes', 'Other shoe']}
 _COCKTAIL = {'types': ['Dress', 'Jumpsuit/Playsuit', 'Top'],
              'keywords': ['satin', 'sequins', 'velvet', 'lace', 'fitted', 'party'],
              'sections': ['Womens Tailoring', 'Womens Premium', 'Divided Selected'],
-             'audience': None}
+             'audience': None, 'footwear': ['Heels', 'Pumps', 'Heeled sandals', 'Wedge', 'Ballerinas', 'Flat shoe', 'Flat shoes', 'Other shoe']}
 _EVENING = {'types': ['Dress', 'Jumpsuit/Playsuit', 'Blouse', 'Top', 'Blazer'],
             'keywords': ['satin', 'chiffon', 'sequins', 'velvet', 'maxi', 'lace'],
             'sections': ['Womens Premium', 'Womens Tailoring', 'Divided Selected'],
-            'audience': None}
+            'audience': None, 'footwear': ['Heels', 'Pumps', 'Heeled sandals', 'Wedge', 'Ballerinas', 'Flat shoe', 'Flat shoes', 'Other shoe']}
 _WEDDING = {'types': ['Dress', 'Jumpsuit/Playsuit', 'Blazer', 'Shirt', 'Trousers', 'Tailored Waistcoat'],
             'keywords': ['satin', 'lace', 'chiffon', 'embroidered', 'tailored', 'maxi'],
             'sections': ['Womens Premium', 'Womens Tailoring', 'Men Suits & Tailoring'],
-            'audience': None}
+            'audience': None, 'footwear': ['Heels', 'Pumps', 'Heeled sandals', 'Wedge', 'Ballerinas', 'Flat shoe', 'Flat shoes', 'Other shoe']}
 _BRIDAL = {'types': ['Dress', 'Robe', 'Night gown', 'Underwear set'],
            'keywords': ['bridal', 'lace', 'satin', 'white', 'tulle'],
            'sections': ['Womens Premium', 'Womens Nightwear, Socks & Tigh'],
@@ -1791,11 +1791,11 @@ _BRIDAL = {'types': ['Dress', 'Robe', 'Night gown', 'Underwear set'],
 _PROM = {'types': ['Dress', 'Blazer', 'Jumpsuit/Playsuit', 'Tie'],
          'keywords': ['satin', 'tulle', 'sequins', 'maxi', 'tuxedo', 'velvet'],
          'sections': ['Womens Premium', 'Divided Selected', 'Men Suits & Tailoring'],
-         'audience': None}
+         'audience': None, 'footwear': ['Heels', 'Pumps', 'Heeled sandals', 'Wedge', 'Ballerinas', 'Flat shoe', 'Flat shoes', 'Other shoe']}
 _DATE = {'types': ['Dress', 'Top', 'Blouse', 'Skirt', 'Bodysuit'],
          'keywords': ['satin', 'lace', 'wrap', 'fitted', 'velvet', 'off-the-shoulder'],
          'sections': ['Womens Trend', 'Divided Selected', 'Womens Tailoring'],
-         'audience': None}
+         'audience': None, 'footwear': ['Heels', 'Pumps', 'Heeled sandals', 'Wedge', 'Ballerinas', 'Flat shoe', 'Flat shoes', 'Other shoe']}
 _BRUNCH = {'types': ['Dress', 'Blouse', 'Skirt', 'Top', 'Shirt', 'Sandals'],
            'keywords': ['linen', 'airy', 'cotton', 'patterned', 'broderie anglaise', 'flounce'],
            'sections': ['Womens Casual', 'Womens Trend', 'Contemporary Casual'],

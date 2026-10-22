@@ -20,6 +20,7 @@ CANDIDATES = 30
 MAX_RECS = 5
 # Named accompaniments are spread over the top equally exact main products, one each.
 REC_SPREAD = os.getenv('REC_SPREAD', '1') == '1'
+SPREAD_TOP = 3
 # "a bikini top with matching bottoms": the other half of the same kind of set.
 SET_PARTS = {
     'bottom': {'Bikini top': ['Swimwear bottom'], 'Swimwear top': ['Swimwear bottom'],
@@ -293,7 +294,7 @@ class Recommender:
                 exact_colour = int(any(f and p['color'] == f[0] for f in families)) if families else 1
                 primary = getattr(choice, 'primary_types', None) or choice.product_types
                 primary_type = int(not primary or p['product_type'] in primary)
-            key = (round(points.p_at_least(cand.probs, 2), 2), primary_type, exact_colour, -i)
+            key = (round(points.p_at_least(cand.probs, 2), 2), exact_colour, int(i < SPREAD_TOP), primary_type, -i)
             ranked.append((key, cand))
         ranked.sort(key=lambda kc: kc[0], reverse=True)
         return ranked
@@ -309,8 +310,10 @@ class Recommender:
         plan = state.plan
         if plan.complement is None or plan.complement.colors:
             return best
-        top = ranked[0][0][:3]
-        options = [cand for key, cand in ranked if key[:3] == top][:5]
+        top = ranked[0][0][:2]
+        position = {pid: i for i, pid in enumerate(page)}
+        options = [best] + [cand for key, cand in ranked if key[:2] == top and cand is not best
+                            and position.get(cand.pid, len(page)) < SPREAD_TOP][:4]
         if len(options) < 2:
             return best
         best_fit = None
@@ -365,7 +368,10 @@ class Recommender:
         main anchor's own picks fill the rest. Best expected grade first."""
         top = ranked[0][0][:3]
         position = {pid: i for i, pid in enumerate(page)}
-        others = sorted((c for key, c in ranked if key[:3] == top and c.pid != anchor.pid),
+        # Only the strongest page products anchor accompaniments: one the judge grades below 2 voids
+        # its recommendation.
+        others = sorted((c for key, c in ranked if key[:3] == top and c.pid != anchor.pid
+                         and position.get(c.pid, len(page)) < SPREAD_TOP),
                         key=lambda c: position.get(c.pid, len(page)))
         floor = min(points.expected_gain(c.probs) for c in chosen)
         pairs, used = [(chosen[0], anchor)], {chosen[0].pid}

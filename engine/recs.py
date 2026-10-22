@@ -143,6 +143,52 @@ class Recommender:
         return [t for t in types if t != anchor['product_type'] and t not in owned
                 and (other is None or self.vocab.type_gender.get(t) != other)], [], False
 
+    def matchable_mask(self, plan, choice):
+        """Products whose colour has at least three accompaniments of the asked kind, within the
+        budget and for the product's own wearer, so a main product in that colour can get an
+        accompaniment in exactly its colour. None when no accompaniment kind was named or the
+        accompaniment has its own colour."""
+        comp = plan.complement
+        if comp is None or not comp.product_types or comp.colors:
+            return None
+        cached = getattr(plan, 'matchable_cache', None)
+        if cached is not None:
+            return cached
+        idx = self.index
+        mask = type_mask(idx, list(comp.product_types))
+        budget = comp if (comp.min_price is not None or comp.max_price is not None) else choice
+        if budget.min_price is not None:
+            mask &= idx.price >= budget.min_price
+        if budget.max_price is not None:
+            mask &= idx.price <= budget.max_price
+        kw_terms = [t for word in comp.keywords for t in tokenize(word)]
+        if kw_terms:
+            mask &= self.engine.bm25.coverage(kw_terms) > 0
+        colour = idx.codes['color']
+        n_colours = len(idx.values['color'])
+
+        def enough(cand):
+            return (np.bincount(colour[cand], minlength=n_colours) >= 3)[colour]
+
+        out = np.zeros(idx.n, dtype=bool)
+        stated = getattr(choice, 'audience_group', None) or plan.audience_group
+        if stated in self.vocab.group_masks:
+            cand = mask & self.vocab.group_masks[stated]
+            out = enough(cand if cand.any() else mask)
+        else:
+            covered = np.zeros(idx.n, dtype=bool)
+            baby = self.vocab.group_masks['baby']
+            for group in ('baby', 'kids', 'men', 'women'):
+                wearers = self.vocab.group_masks[group] & ~covered
+                if group == 'kids':
+                    wearers &= ~baby
+                cand = mask & self.vocab.group_masks[group]
+                out |= wearers & enough(cand if cand.any() else mask)
+                covered |= wearers
+            out |= ~covered & enough(mask)
+        plan.matchable_cache = out
+        return out
+
     def hard_mask(self, plan, anchor_pid, page, anchor_choice=None, use_group=True):
         idx = self.index
         mask = np.ones(idx.n, dtype=bool)

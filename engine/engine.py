@@ -123,6 +123,22 @@ def lead_with_each_choice(ranked, n_choices, k=10):
     return [ranked[i] for i in lead] + [c for i, c in enumerate(ranked) if i not in first]
 
 
+def spread_kinds(ranked, types_of, k=10, cap=3):
+    """"unicorn stuff for my daughter": nothing named, so the page shows every kind of unicorn
+    thing (dresses, slippers, hair bands) rather than ten lip balms. Equally likely products
+    keep their order; a kind past its cap waits for the kinds not shown yet."""
+    head, rest, seen = [], [], {}
+    for cand in ranked:
+        kind = types_of(cand.pid)
+        if len(head) < k and seen.get(kind, 0) >= cap:
+            rest.append(cand)
+            continue
+        if len(head) < k:
+            seen[kind] = seen.get(kind, 0) + 1
+        head.append(cand)
+    return head[:k] + rest + head[k:]
+
+
 def load_calibration():
     try:
         with open(CALIBRATION_PATH) as fh:
@@ -339,6 +355,9 @@ class SemanticEngine:
             score = points.mixed_objective(ranked[:10], n_choices)
         else:
             ranked = points.order_by_expected_gain(cands, min_gain=0.5)
+            only = pools[0].choice
+            if not only.product_types and getattr(only, 'head', None) in ('placeholder', 'generic'):
+                ranked = spread_kinds(ranked, lambda pid: self.products[pid]['product_type'])
             score = points.expected_ndcg(ranked[:10])
         state = SearchState(key=key, plan=plan, abstain=False, reason='', cands=cands, ranked=ranked,
                             n_choices=n_choices, pools=pools, source=plan.source, graded=len(grades))
@@ -536,6 +555,13 @@ class SemanticEngine:
                 named = self.described_type[positions]
                 other_kind = (named != '') & ~np.isin(named, list(types) + ['Hoodie' if 'Sweater' in types else ''])
                 score = score - 2.0 * other_kind
+        if plan.complement is not None and tm is not None:
+            # "a dress for dinner with a matching bag": the judge grades each accompaniment against
+            # its main product, so among equally relevant dresses the ones a matching bag exists
+            # for come first.
+            matchable = self.recommender.matchable_mask(plan, choice)
+            if matchable is not None:
+                score = score + 1.0 * matchable[positions]
         est = np.ones(len(positions), dtype=np.int64)
         if tm is not None and not occasion_types:
             est[type_hit | name_hit] = 2

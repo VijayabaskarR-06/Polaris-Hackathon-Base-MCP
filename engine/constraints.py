@@ -85,6 +85,13 @@ def hard_mask(index, vocab, filters, plan, choice, support=None):
         low = choice.min_price if choice.min_price is not None else -np.inf
         high = choice.max_price if choice.max_price is not None else np.inf
         price = (index.price >= low) & (index.price <= high)
+        if getattr(choice, 'strict_max', False) and (len(plan.choices) > 1 or plan.complement is not None):
+            # Outfit requests: "under 999" leaves out a 999 price, unless that leaves too little.
+            strict = price & (index.price < high)
+            kinds = type_mask(index, choice.product_types) if choice.product_types else support
+            pool = mask & strict if kinds is None else mask & strict & kinds
+            if np.count_nonzero(pool) >= 10:
+                price = strict
         mask = _apply(mask, price, info, 'budget', ('min_price', 'max_price'), filters)
     if choice.exclude_colors:
         mask = _apply(mask, ~_codes_mask(index, 'color', choice.exclude_colors), info, 'exclude_colors',

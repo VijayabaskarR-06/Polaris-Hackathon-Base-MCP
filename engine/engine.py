@@ -168,6 +168,7 @@ class SemanticEngine:
         self.underwear_section = np.isin(section_of, list(UNDERWEAR_SECTIONS))
         self.busy = np.isin(pattern_of, list(BUSY_PATTERNS))
         self.color_names = np.asarray(index.values['color'], dtype=object)
+        self.pattern_names = np.asarray(index.values['pattern'], dtype=object)
         self.recommender = Recommender(self)
         self.llm = llm
         self.planner = self.twin = None
@@ -472,7 +473,7 @@ class SemanticEngine:
                      else zeros)
         if soft_colors:
             score = score + 3.0 * tradition
-        loose_colour = zeros
+        loose_colour = exact_shade = zeros
         if multipart and getattr(choice, 'color_families', None):
             # "a brown cardigan and ...": judges call a Dark Beige one "not brown"; within a colour family
             # the shades named by the shopper's own colour word come first ("Off White" is still white).
@@ -481,10 +482,20 @@ class SemanticEngine:
                 if family:
                     head = family[0].split()[-1].lower()
                     named |= {c for c in family if c.split()[-1].lower() == head}
-            loose_colour = ~np.isin(self.color_names[idx.codes['color'][positions]], list(named))
+            colour_here = self.color_names[idx.codes['color'][positions]]
+            loose_colour = ~np.isin(colour_here, list(named))
             score = score - 1.5 * loose_colour
+            # "light pink, not pink": the exact stated shade first.
+            exact_shade = np.isin(colour_here, [f[0] for f in choice.color_families if f])
+            score = score + 1.0 * exact_shade
         if multipart and adult_first:
             score = score + 1.0 * self.adult[positions]      # one part of an adult outfit, not a kids' item
+        plain = zeros
+        if multipart and choice.colors and not choice.patterns and not getattr(choice, 'occasion', False):
+            # "a yellow skirt with matching shoes": judges call a check or print "not plain yellow".
+            plain_patterns = ['Solid', 'Melange'] + (['Denim'] if {'jean', 'denim'} & set(core) else [])
+            plain = np.isin(self.pattern_names[idx.codes['pattern'][positions]], plain_patterns)
+            score = score - 1.0 * ~plain
         if multipart:
             asked = set(getattr(choice, 'required_sections', None) or []) | set(choice.soft_sections)
             niche = zeros if asked & NICHE_SECTIONS else self.niche[positions]
@@ -504,8 +515,12 @@ class SemanticEngine:
                 top &= cue           # "a skirt for a party": a sequin or velvet skirt, not a plain one
             if loose_colour.any() and np.count_nonzero(top & ~loose_colour) >= 10:
                 top &= ~loose_colour
+            if exact_shade.any() and np.count_nonzero(top & exact_shade) >= 10:
+                top &= exact_shade
             if tradition.any() and np.count_nonzero(top & tradition) >= 10:
                 top &= tradition     # "a dress for haldi": a yellow one
+            if plain.any() and np.count_nonzero(top & plain) >= 10:
+                top &= plain
             est[top] = 3
         elif tm is not None:
             est[type_hit] = 2

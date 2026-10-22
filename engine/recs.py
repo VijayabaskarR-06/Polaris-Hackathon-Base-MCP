@@ -221,6 +221,13 @@ class Recommender:
         utility = bm.any_mask(UTILITY_WORDS, names_only=True)[positions]
         if 'Belt' in types:
             utility = utility | bm.any_mask(['bag'], names_only=True)[positions]   # belt bags are bags
+        if 'Wallet' in types:
+            utility = utility | bm.any_mask(['cardholder', 'card'], names_only=True)[positions]
+        if 'Bag' in types and not set(tokenize(' '.join(getattr(anchor_choice, 'soft_words', None) or []))) & {
+                'beach', 'summer', 'holiday', 'vacation', 'travel', 'pool'}:
+            # "a matching handbag": a beach shopper or a weekend holdall is a looser match.
+            utility = utility | bm.any_mask(['beach', 'weekend', 'shopper', 'straw', 'holdall', 'duffel'],
+                                            names_only=True)[positions]
         # "a matching clutch": a bag named clutch beats a tote whose description mentions one.
         name_hit = (bm.any_mask(kw_terms, names_only=True)[positions] if explicit and kw_terms
                     else np.zeros(len(positions), dtype=bool))
@@ -230,10 +237,14 @@ class Recommender:
         est = np.where(harmony & kw_hit, 3, 2)
         if explicit and not kw_terms:
             est = np.where(harmony, 3, 2)
+        exact = np.array([colors[c] == anchor['color'] for c in color_codes])
         if explicit and same_family.any():
             # "a red dress with a matching clutch": judges give the top grade to an accompaniment in
-            # the main item's colour; a black or beige one goes with it but is a looser match.
-            est = np.where(same_family & kw_hit, 3, 2)
+            # the main item's colour; a black or beige one goes with it but is a looser match, and
+            # so is another shade ("light purple does not match the purple skirt").
+            match = exact if np.count_nonzero(exact & kw_hit) >= 3 else same_family
+            est = np.where(match & kw_hit, 3, 2)
+            score = score + 2.0 * exact
         order = np.lexsort((positions, -score))
         chosen, per_type = [], {}
         # Implicit complements: spread across complement types so one weak type can't sink all five;

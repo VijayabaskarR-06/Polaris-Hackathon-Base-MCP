@@ -13,6 +13,7 @@ from engine.text import normalize_query, raw_tokens, stem, tokenize
 NUM = r'(\d+(?:\.\d+)?)'
 CUR = r'(?:inr\s*)?'
 TAIL = r'(?:\s*inr)?(?:\s*/-)?'
+STRICT_MAX_RE = re.compile(r'(?:under|below|beneath|less than|lesser than|lower than|cheaper than|for less than|for under|<(?!=))')
 MAX_RES = [re.compile(p) for p in (
     rf'\b(?:under|below|beneath|less than|lesser than|lower than|up ?to|upto|till|within|max(?:imum)?'
     rf'|not more than|no more than|not over|cheaper than|at most|not exceeding|no higher than|for less than'
@@ -172,6 +173,7 @@ class Budget:
     start: int = 0
     end: int = 0
     soft_target: float = None
+    strict: bool = False         # "under 999": a product priced 999 is not under it
 
 
 def _value(text):
@@ -213,6 +215,7 @@ def parse_budgets(text):
                     continue
                 budget = Budget(start=m.start(), end=m.end())
                 setattr(budget, f'{kind}_price', value)
+                budget.strict = kind == 'max' and bool(STRICT_MAX_RE.match(m.group(0)))
                 found.append(budget)
                 taken.append(m.span())
     for m in AROUND_RE.finditer(text):
@@ -1084,6 +1087,7 @@ class RulePlanner:
             if lo is not None and hi is not None and lo > hi and all(b is not x for x in own):
                 continue
             min_price, max_price = lo, hi
+        strict_max = any(b.strict and b.max_price == max_price for b in seg.budgets) if max_price is not None else False
         label = ' '.join(seg.text.split()).strip(' ,.;:!?') or ' '.join(seg.type_words)
         choice = Choice(
             label=label[:120] or 'item', product_types=types, keywords=keywords, colors=colors,
@@ -1106,6 +1110,7 @@ class RulePlanner:
         choice.color_families = [list(f) for f in seg.colors]
         choice.type_words = list(seg.type_words)
         choice.occasion = bool(seg.occasions)
+        choice.strict_max = strict_max
         # "haldi": a ceremony's traditional colour is a strong preference unless a colour was stated.
         choice.soft_colors = [] if colors or exclude_colors else occasion_colors
         choice.generic = seg.generic

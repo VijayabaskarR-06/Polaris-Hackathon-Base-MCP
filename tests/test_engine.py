@@ -111,6 +111,20 @@ class EngineTests(unittest.TestCase):
             prices = [self.products[i]['price']['amount'] for i in ids]
             self.assertEqual(prices, sorted(prices, reverse=order == 'desc'))
 
+    def test_mixed_page_leads_with_every_choice(self):
+        for query in ('Black Dress and Grey Cardigan', 'Red Sneakers and Grey Socks', 'Purple Dress and Black Gloves'):
+            with self.subTest(query=query):
+                ids = self.ids(query=query)
+                first = [self.products[i]['product_type'] for i in ids[:2]]
+                self.assertEqual(len(set(first)), 2, first)
+
+    def test_mixed_items_prefer_plain_mainline_products(self):
+        ids = self.ids(query='Grey Hoodie and Black Sweatpants')
+        sections = {self.products[i]['section'] for i in ids}
+        self.assertFalse(sections & {'Mama', 'H&M+'}, sections)
+        patterns = [self.products[i]['pattern'] for i in ids]
+        self.assertFalse({'Stripe', 'Dot', 'All over pattern'} & set(patterns), patterns)
+
     def test_recommendation_targets(self):
         out = self.search(query='a bikini top with matching bottoms', include_recommendations=True)
         self.assertTrue(out['recommendations'])

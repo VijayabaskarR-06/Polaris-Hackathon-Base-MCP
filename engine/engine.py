@@ -34,6 +34,12 @@ EVIDENCE_COVERAGE = 0.6
 DRESSY_TERMS = {'satin', 'sequin', 'velvet', 'lace', 'chiffon', 'metallic', 'glitter', 'glittery', 'sparkly',
                 'shimmer', 'shimmering', 'tulle', 'beaded', 'embellished', 'silk', 'crepe', 'organza', 'jacquard',
                 'pleated', 'party'}
+# In a mixed request each item is one part of an outfit: plain items in the stated colour from
+# mainline sections are the direct match; these are looser unless the shopper asked for them.
+NICHE_SECTIONS = {'Mama', 'H&M+'}
+UNDERWEAR_SECTIONS = {'Men Underwear', 'Womens Lingerie', 'Womens Nightwear, Socks & Tigh'}
+BUSY_PATTERNS = {'All over pattern', 'Stripe', 'Front print', 'Placement print', 'Check', 'Colour blocking',
+                 'Mixed solid/pattern', 'Dot', 'Other pattern', 'Contrast', 'Argyle', 'Hologram', 'Application/3D'}
 # Deadlines, seconds after the request starts (the benchmark allows 10 s per call).
 PLANNER_DEADLINE = float(os.getenv('PLANNER_DEADLINE', '2.5'))
 JUDGE_DEADLINE = float(os.getenv('JUDGE_DEADLINE', '6.0'))
@@ -70,6 +76,23 @@ def p_answerable(ranked, k=10):
     make ten weak products look almost surely answerable and never abstain.
     """
     return max((points.p_at_least(c.probs, 2) for c in ranked[:k]), default=0.0)
+
+
+def lead_with_each_choice(ranked, n_choices, k=10):
+    """Move each choice's best likely-relevant product to the front, keeping their order.
+
+    "black jeans and white T-shirts": the first two results are a pair of jeans
+    and a T-shirt, so every requested choice shows from the top of the page.
+    """
+    lead, seen = [], set()
+    for i, cand in enumerate(ranked[:k]):
+        if cand.choice not in seen and points.p_at_least(cand.probs, 2) >= 0.5:
+            seen.add(cand.choice)
+            lead.append(i)
+    if len(lead) < 2:
+        return ranked
+    first = set(lead)
+    return [ranked[i] for i in lead] + [c for i, c in enumerate(ranked) if i not in first]
 
 
 def load_calibration():
@@ -133,6 +156,11 @@ class SemanticEngine:
         self.section_codes = {s: i for i, s in enumerate(index.values['section'])}
         self.audience_codes = {a: i for i, a in enumerate(index.values['audience'])}
         self.pattern_codes = {p: i for i, p in enumerate(index.values['pattern'])}
+        section_of = np.asarray(index.values['section'], dtype=object)[index.codes['section']]
+        pattern_of = np.asarray(index.values['pattern'], dtype=object)[index.codes['pattern']]
+        self.niche = np.isin(section_of, list(NICHE_SECTIONS))
+        self.underwear_section = np.isin(section_of, list(UNDERWEAR_SECTIONS))
+        self.busy = np.isin(pattern_of, list(BUSY_PATTERNS))
         self.recommender = Recommender(self)
         self.llm = llm
         self.planner = self.twin = None
@@ -264,7 +292,7 @@ class SemanticEngine:
         cands = self.candidates(pools, grades)
         n_choices = len(pools)
         if n_choices > 1:
-            ranked = points.build_mixed_list(cands, n_choices, depth=100)
+            ranked = lead_with_each_choice(points.build_mixed_list(cands, n_choices, depth=100), n_choices)
             score = points.mixed_objective(ranked[:10], n_choices)
         else:
             ranked = points.order_by_expected_gain(cands, min_gain=0.5)
@@ -416,6 +444,15 @@ class SemanticEngine:
         if adult_first:
             # No audience stated: adult products first, before the pool is cut to size.
             score = score + 1.0 * self.adult[positions]
+        if len(plan.choices) > 1:
+            asked = set(getattr(choice, 'required_sections', None) or []) | set(choice.soft_sections)
+            niche = zeros if asked & NICHE_SECTIONS else self.niche[positions]
+            under = self.underwear_section[positions]
+            if type_hit.any() and under[type_hit].mean() >= 0.3:
+                under = zeros        # socks, bras, pyjamas: their own sections are the right ones
+            score = score - 1.5 * niche - 1.0 * under
+            if choice.colors and not choice.patterns:
+                score = score - 1.0 * self.busy[positions]
         est = np.ones(len(positions), dtype=np.int64)
         if tm is not None and not occasion_types:
             est[type_hit | name_hit] = 2

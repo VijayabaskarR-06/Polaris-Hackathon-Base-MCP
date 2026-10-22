@@ -652,6 +652,13 @@ class RulePlanner:
             for mod in trailing:
                 for target in choices_segs:
                     self._share(target, mod)
+            setting = self._trailing_setting(choices_segs[-1])
+            if setting is not None:
+                # "shirts and ties for the office", "leggings and sports bras for yoga": the occasion
+                # said after the last item is the setting of every item without one of its own.
+                for target in choices_segs[:-1]:
+                    if not target.occasions:
+                        self._share_setting(target, setting)
             if alternatives:
                 # "a dress or a top, in yellow": alternatives for one need share what was stated.
                 for source in list(choices_segs):
@@ -851,6 +858,26 @@ class RulePlanner:
         last_typed = max((i for i, seg in enumerate(segments) if seg.has_type), default=-1)
         return [seg for i, seg in enumerate(segments) if i > last_typed and not seg.has_type and last_typed >= 0]
 
+    def _trailing_setting(self, seg):
+        """The occasion phrase ending an item ("ties for the office"): a typeless Segment, or None."""
+        for m in re.finditer(r'\b(?:for|at|during|on|in)\b', seg.text):
+            head = self.analyze(Segment(seg.start, seg.start + m.start(), seg.text[:m.start()]), Signals())
+            if not head.has_type:
+                continue
+            tail = self.analyze(Segment(seg.start + m.start(), seg.end, seg.text[m.start():]), Signals())
+            if tail.has_type or not (tail.occasions or tail.styles):
+                return None
+            return tail
+        return None
+
+    @staticmethod
+    def _share_setting(target, setting):
+        for name in ('occasions', 'sections', 'styles'):
+            values = getattr(target, name)
+            for v in getattr(setting, name):
+                if v not in values:
+                    values.append(v)
+
     @staticmethod
     def _alternatives(text):
         """True when the items are joined only by "or"/"ya" (alternatives), not "and"."""
@@ -1015,6 +1042,11 @@ class RulePlanner:
             shared = [t for t in occasion_types if all(t in ts for ts in type_sets)]
             if shared:
                 occasion_types = shared
+        if seg.group_types and not seg.types and occasion_types:
+            # "shoes for the gym", "shoes for the beach": the occasion says which of the group's kinds.
+            narrowed = [t for t in seg.group_types if t in occasion_types]
+            if narrowed:
+                types = narrowed
         group = self._audience(seg.audience) or self._audience(signals.audience)
         if group in ('baby', 'kids', 'girls', 'boys') and any('gift' in occ['keywords'] for occ in seg.occasions):
             occasion_types = [t for t in CHILD_GIFT_TYPES if t in self.vocab.type_set]

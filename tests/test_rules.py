@@ -250,6 +250,23 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(len(self.plan('white sneakers along with a denim jacket').choices), 2)
         self.assertEqual(len(self.plan('need a bikini and a sarong. sunnies too').choices), 3)
 
+    def test_trailing_setting_is_shared(self):
+        leggings, bras = self.plan('leggings and sports bras for yoga').choices
+        self.assertTrue(leggings.occasion)
+        self.assertEqual(leggings.occasion_audiences, bras.occasion_audiences)
+        shirts, ties = self.plan('shirts and ties for the office').choices
+        self.assertTrue(shirts.occasion and ties.occasion)
+        # Each item keeps its own setting when it states one.
+        jeans, top = self.plan('jeans for work and a top for a party').choices
+        self.assertNotEqual(jeans.soft_words, top.soft_words)
+
+    def test_regional_words(self):
+        for query, kind in (('cozzie', 'Swimsuit'), ('bathers', 'Swimsuit'), ('togs', 'Swimsuit'),
+                            ('boardies', 'Swimwear bottom'), ('trackies', 'Trousers'), ('jim jams', 'Pyjama set'),
+                            ('cagoule', 'Jacket'), ('robe noire', 'Dress')):
+            with self.subTest(query=query):
+                self.assertIn(kind, self.plan(query).choices[0].product_types)
+
     def test_unsold_complement(self):
         for query in ('white shirt with a matching cummerbund', 'yoga leggings and a yoga mat to go with them'):
             with self.subTest(query=query):

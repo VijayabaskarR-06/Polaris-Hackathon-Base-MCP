@@ -76,6 +76,8 @@ DEVANAGARI_WORDS = {
 }
 FRENCH_MARKERS = {'je', 'cherche', 'veux', 'voudrais', 'une', 'des', 'pour', 'avec', 'ma', 'mon', 'mes', 'fille',
                   'femme', 'homme', 'soiree', 'tres', 'et', 'blanche', 'noire', 'rose', 'jolie'}
+FRENCH_COLOURS = {'noir', 'noire', 'noires', 'rouge', 'rouges', 'blanc', 'blancs', 'blanches', 'bleu', 'bleue',
+                  'bleues', 'vert', 'verte', 'vertes', 'jaune', 'jaunes', 'longue', 'courte', 'ete', 'mariage'}
 DEVANAGARI_DIGITS = str.maketrans('०१२३४५६७८९', '0123456789')
 
 # Inflected forms ("rojos", "noires", "rote") are looked up by trying these endings.
@@ -404,7 +406,11 @@ class Vocab:
         """
         if self.foreign_re is None:
             return text
-        if len(set(re.findall(r'\b\w+\b', text)) & FRENCH_MARKERS) >= 2:
+        words = set(re.findall(r'\b\w+\b', text))
+        if re.search(r'\brobes?\b', text) and words & (FRENCH_MARKERS | FRENCH_COLOURS) - {'rose'}:
+            # "robe noire", "une robe rouge": with any French word, a robe is a dress.
+            text = re.sub(r'\brobes?\b', 'dress', text)
+        if len(words & FRENCH_MARKERS) >= 2:
             # In French a "robe" is a dress (in English, a bathrobe), "rose" is pink, and "son"/"sa"
             # mean his/her ("pour son anniversaire"), not a son.
             text = re.sub(r'\brobes?\b', 'dress', text)

@@ -87,7 +87,7 @@ def tokenize(text):
     return [stem(t) for t in raw_tokens(text) if len(t) >= 2]
 
 
-NUMBER_K = re.compile(r'(\d+(?:\.\d+)?)\s*k\b')
+NUMBER_K = re.compile(r'(?<!\by)(\d+(?:\.\d+)?)\s*k\b')    # "2k" -> 2000, but "y2k" is a style
 NUMBER_COMMA = re.compile(r'(?<=\d),(?=\d{3}\b)')
 CURRENCY = re.compile(r'₹|\brs\.?(?=\s|\d|$)|\brupees?\b|\binr\b|\binr\.')
 WITH_ABBREVIATION = re.compile(r'\bw/(o\b)?')    # "top w/ matching bottoms", "dress w/o sleeves"

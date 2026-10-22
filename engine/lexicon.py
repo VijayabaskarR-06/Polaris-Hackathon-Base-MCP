@@ -714,6 +714,9 @@ TYPE_WORDS = {
     'card holder': (['Wallet'], ['card holder', 'cardholder']),
     'cardholder': (['Wallet'], ['card holder', 'cardholder']),
     'coin purse': (['Wallet', 'Bag'], ['purse', 'coin']),
+    'satchel': (['Bag', 'Shoulder bag', 'Cross-body bag'], ['satchel']),
+    'duffel': (['Weekend/Gym bag', 'Bag'], ['weekend bag', 'sports bag']),
+    'duffle': (['Weekend/Gym bag', 'Bag'], ['weekend bag', 'sports bag']),
     'billfold': (['Wallet'], ['wallet']),
 
     # --- jewellery and watches ------------------------------------------------------
@@ -721,6 +724,7 @@ TYPE_WORDS = {
     'hoops': (['Earring', 'Earrings'], ['hoop']),
     'hoop earring': (['Earring', 'Earrings'], ['hoop']),
     'stud earring': (['Earring', 'Earrings'], ['stud earrings', 'studs']),
+    'studs': (['Earring', 'Earrings'], ['stud earrings']),
     'ear cuff': (['Earring', 'Earrings'], ['ear cuff', 'earcuff']),
     'chain': (['Necklace'], ['chain']),
     'chain necklace': (['Necklace'], ['chain']),
@@ -729,6 +733,7 @@ TYPE_WORDS = {
     'locket': (['Necklace', 'Giftbox'], ['locket']),
     'bangle': (['Bracelet'], ['bangle', 'bracelet']),
     'bangles': (['Bracelet'], ['bangle', 'bracelet']),
+    'kada': (['Bracelet'], ['bangle', 'bracelet']),
     'charm bracelet': (['Bracelet'], ['bracelet', 'pendants']),
     'anklet': (['Other accessories'], ['anklet']),
     'brooch': (['Other accessories'], ['brooch']),
@@ -1001,6 +1006,7 @@ COLOR_WORDS = {
     # every catalog colour by its own name ("other x" and "unknown" are left
     # out on purpose: "other pink" reads as English, not as neon pink)
     'black': ['Black'],
+    'blk': ['Black'],
     'white': ['White', 'Off White'],
     'offwhite': ['Off White', 'Light Beige'],
     'grey': ['Grey', 'Light Grey', 'Dark Grey'],
@@ -2102,7 +2108,7 @@ OCCASIONS = {
     'ceremony': _WEDDING, 'christening': _WEDDING, 'anniversary': _WEDDING, 'bridesmaid': _WEDDING,
     'groom': _WEDDING, 'mother of the bride': _WEDDING,
     'bridal': _BRIDAL, 'bridal shower': _BRIDAL,
-    'prom': _PROM, 'ball': _PROM, 'homecoming': _PROM, 'formal dance': _PROM,
+    'prom': _PROM, 'ball': _PROM, 'homecoming': _PROM, 'formal dance': _PROM, 'prom night': _PROM,
     'date': _DATE, 'date night': _DATE, 'first date': _DATE, 'dinner': _DATE, 'dinner date': _DATE,
     'romantic': _DATE, 'romantic dinner': _DATE, 'candlelight dinner': _DATE, 'restaurant': _DATE,
     'brunch': _BRUNCH, 'lunch': _BRUNCH, 'day out': _BRUNCH, 'garden party': _BRUNCH,
@@ -2200,6 +2206,7 @@ OCCASIONS = {
     'walking': _WALKING, 'long walks': _WALKING, 'walk': _WALKING, 'dog walking': _WALKING,
     'walking the dog': _WALKING, 'walk the dog': _WALKING,
     'graduation': _GRADUATION, 'convocation': _GRADUATION, 'award ceremony': _GRADUATION,
+    'graduation day': _GRADUATION, 'graduation ceremony': _GRADUATION,
     'farewell': _GRADUATION,
     'funeral': _FUNERAL, 'memorial': _FUNERAL, 'mourning': _FUNERAL, 'prayer meeting': _FUNERAL,
     'church': _MODEST, 'temple': _MODEST, 'mosque': _MODEST, 'gurudwara': _MODEST, 'modest': _MODEST,
@@ -2766,3 +2773,58 @@ STOPWORDS.update(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'satur
 for _day in ('friday', 'saturday'):
     OCCASIONS.update({f'{_day} night': OCCASIONS['night out'], f'{_day} night out': OCCASIONS['night out'],
                       f'{_day} nights': OCCASIONS['night out']})
+# Needs described instead of named ("know the time without my phone" is a watch).
+_HAIR_OFF_FACE = (['Hair/alice band', 'Hair clip', 'Hair string'], ['hair clip', 'alice band', 'hairband'])
+_SHOWER_FEET = (['Flip flop', 'Sandals'], ['flip-flops', 'slides'])
+_BABY_SLEEP = (['Sleeping sack'], ['sleepbag', 'sleeping bag'])
+_ROBE = (['Robe'], ['bathrobe', 'dressing gown'])
+_SHAPING = (['Underwear body', 'Underwear bottom', 'Underdress'], ['shaping'])
+_PLUSH = (['Soft Toys'], ['soft toy', 'teddy'])
+_SUN_ON_FACE = (['Hat/brim', 'Cap/peaked', 'Straw hat', 'Bucket hat'], ['sun hat', 'brim'])
+_PHONE = (['Mobile case', 'Other accessories'], ['phone case'])
+TYPE_WORDS.update({
+    'tell the time': (['Watch'], ['watch']), 'know the time': (['Watch'], ['watch']),
+    'check the time': (['Watch'], ['watch']),
+    'cards and cash': (['Wallet'], ['wallet']), 'cards and money': (['Wallet'], ['wallet']),
+    'keep my cards': (['Wallet'], ['wallet']),
+    'out of my eyes': _HAIR_OFF_FACE, 'out of my face': _HAIR_OFF_FACE, 'hair back': _HAIR_OFF_FACE,
+    'over my bikini': (['Sarong'], ['sarong', 'pareo']), 'over my swimsuit': (['Sarong'], ['sarong', 'pareo']),
+    'shower shoes': _SHOWER_FEET, 'hostel showers': _SHOWER_FEET, 'pool slides': _SHOWER_FEET,
+    'kicks off her blanket': _BABY_SLEEP, 'kicks off his blanket': _BABY_SLEEP, 'kicks off the blanket': _BABY_SLEEP,
+    'slipping down': (['Belt', 'Braces'], ['belt']), 'falling down': (['Belt', 'Braces'], ['belt']),
+    'hands free': (['Cross-body bag', 'Bag', 'Bumbag'], ['crossbody', 'shoulder strap', 'bumbag']),
+    'carry water': (['Waterbottle'], ['waterbottle']), 'stay hydrated': (['Waterbottle'], ['waterbottle']),
+    'sipper': (['Waterbottle'], ['waterbottle']),
+    'potty training': (['Underwear bottom'], ['briefs']),
+    'look taller': (['Pumps', 'Heeled sandals', 'Heels', 'Wedge'], ['heels']),
+    'after a shower': _ROBE, 'after my shower': _ROBE, 'post shower': _ROBE, 'after the bath': _ROBE,
+    'stop the bounce': (['Bra'], ['sports bra', 'high support']),
+    'bare legs': (['Underwear Tights', 'Leggings/Tights'], ['tights', 'opaque']),
+    'tummy control': _SHAPING, 'smooth my tummy': _SHAPING,
+    'cover my hair': (['Scarf'], ['scarf']), 'cover my head': (['Scarf', 'Hat/beanie'], ['scarf']),
+    'sun glare': (['Sunglasses'], ['sunglasses']),
+    'chapped lips': (['Fine cosmetics'], ['lip balm']), 'dry lips': (['Fine cosmetics'], ['lip balm']),
+    'panty lines': (['Underwear bottom'], ['seamless', 'invisible']), 'vpl': (['Underwear bottom'], ['seamless', 'invisible']),
+    'cuddle buddy': _PLUSH, 'cuddly toy': _PLUSH, 'plushie': _PLUSH, 'plushy': _PLUSH, 'stuffed animal': _PLUSH,
+    'stuffed toy': _PLUSH,
+    'sun off my face': _SUN_ON_FACE, 'sun out of my face': _SUN_ON_FACE,
+    'protect my phone': _PHONE, 'back cover': _PHONE, 'mobile cover': _PHONE, 'phone cover': _PHONE,
+    'not pierced': (['Earring', 'Earrings'], ['clip', 'ear cuff']),
+    'clip on earring': (['Earring', 'Earrings'], ['clip', 'ear cuff']),
+    'breastfeed': (['Bra', 'Top', 'Dress'], ['nursing']), 'breastfeeding': (['Bra', 'Top', 'Dress'], ['nursing']),
+    'rain pants': (['Outdoor trousers'], ['rain trousers', 'waterproof']),
+    'suit vest': (['Tailored Waistcoat'], ['waistcoat']),
+    'full slip': (['Underdress'], ['slip']), 'half slip': (['Underdress'], ['slip']),
+    'pram suit': (['Outdoor overall'], ['overall', 'padded']),
+})
+# More everyday words in shoppers' languages.
+FOREIGN_WORDS.update({
+    'doudoune': 'puffer jacket', 'americana': 'blazer', 'cuello alto': 'turtleneck', 'mono largo': 'jumpsuit',
+    'krawatte': 'tie', 'bademantel': 'bathrobe', 'armbanduhr': 'watch', 'tutina': 'onesie', 'neonato': 'newborn',
+    'felpa': 'sweatshirt', 'felpa con cappuccio': 'hoodie', 'nera': 'black', 'regata': 'vest top', 'feminina': 'women',
+    'feminino': 'women', 'colar': 'necklace', 'dourado': 'golden', 'dourada': 'golden', 'tuinbroek': 'dungarees',
+    'zwart': 'black', 'zwarte': 'black', 'dames': 'women', 'voor': 'for', 'kammal': 'earring', 'sattai': 'shirt',
+    'appavukku': 'for dad', 'gaajulu': 'bangle', 'tupi': 'cap', 'moja': 'socks', 'kalo': 'black', 'jonno': 'for',
+    'bacchar': 'kids', 'chamrar': 'leather', 'brassiere de sport': 'sports bra', 'manches longues': 'long sleeves',
+    'body bebe': 'baby bodysuit',
+})

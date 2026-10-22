@@ -14,6 +14,7 @@ from engine.index import STRING_FIELDS, fold
 from engine.text import fold_accents, raw_tokens, stem, tokenize
 
 WORD_RE = re.compile(r'[a-z]+')
+RUN_TOGETHER_RE = re.compile(r'\b[a-z0-9]{8,}\b')
 
 GROUPS = ('women', 'men', 'kids', 'girls', 'boys', 'baby')
 # Function words of common shopping languages, mapped to the English words the planner
@@ -190,10 +191,36 @@ class SpellFixer:
                     variants = variants | {v2 for v in variants for v2 in self._deletes(v)}
                 for variant in variants:
                     self.deletes[variant].append(form)
+        # Texting shorthand drops the vowels ("blzr", "nvy", "snkrs"): shopper words by consonants.
+        skeletons = defaultdict(set)
+        for form, term in self.surface.items():
+            if term in protected and len(form) >= 4:
+                key = self._skeleton(form)
+                if len(key) >= 3:
+                    skeletons[key].add(term)
+        # Ambiguous shorthand goes to a far more common word ("wht" is white, not what).
+        self.skeletons = {}
+        for key, terms in skeletons.items():
+            ranked = sorted(terms, key=lambda t: (-self.freq.get(t, 0), t))
+            if len(ranked) == 1 or self.freq.get(ranked[0], 0) >= 3 * self.freq.get(ranked[1], 0):
+                self.skeletons[key] = ranked[0]
 
     @staticmethod
     def _deletes(term):
         return {term} | {term[:i] + term[i + 1:] for i in range(len(term))}
+
+    @staticmethod
+    def _skeleton(word):
+        """First letter, then the consonants, doubles collapsed: "blazer" -> "blzr"."""
+        return word[0] + re.sub(r'(.)\1+', r'\1', re.sub('[aeiou]', '', word[1:]))
+
+    def shorthand(self, token):
+        """The shopper word a vowel-less token abbreviates ("blzr" -> blazer), or None."""
+        if len(token) < 3 or not token.isalpha() or re.search('[aeiou]', token[1:]):
+            return None
+        if token in self.surface and self.freq.get(self.surface[token], 0) >= 20:
+            return None          # a real catalog word ("shrt" in names), not shorthand
+        return self.skeletons.get(self._skeleton(token))
 
     def correct(self, token):
         """The stem of the best known word within reach of a typo, or None.
@@ -202,11 +229,21 @@ class SpellFixer:
         as "bake" are too close to others for substitutions. 5-6 letters: one
         edit. 7 or more: two edits.
         """
+        short = self.shorthand(token)
+        if short is not None:
+            return short
         if len(token) < 4 or token.isdigit():
             return None
+        doubled = re.search(r'(.)\1$', token)
+        if doubled and token[:-1] in self.surface and self.surface[token[:-1]] in self.protected:
+            return self.surface[token[:-1]]          # "dogg", "hatt"
         limit = 1 if len(token) <= 5 else 2
+        variants = self._deletes(token)
+        if len(token) >= 7:
+            # Two slips in a long word ("trowzers"): delete twice on both sides.
+            variants = variants | {v2 for v in variants for v2 in self._deletes(v)}
         found = set()
-        for variant in self._deletes(token):
+        for variant in variants:
             found.update(self.deletes.get(variant, ()))
         best = None
         for form in found:
@@ -379,6 +416,7 @@ class Vocab:
         for phrase in table('STOP_PHRASES'):
             m.add(phrase, 'stop')
         self.stopwords = {stem(w) for w in table('STOPWORDS') for w in raw_tokens(w)}
+        self.raw_stopwords = {w for w in table('STOPWORDS') for w in raw_tokens(w)}
         self.foreign = {}
         for word, english in list(table('FOREIGN_WORDS').items()) + list(FOREIGN_FUNCTION_WORDS.items()):
             key = ' '.join(fold_accents(word).lower().split())
@@ -428,6 +466,46 @@ class Vocab:
             text = re.sub(r'\bchemis+es?\b', 'shirt', text)
         text = self.foreign_re.sub(lambda m: self.foreign[' '.join(re.split(r'[\s\-]+', m.group(0)))], text)
         return WORD_RE.sub(self._inflected, text)
+
+    def split_run_together(self, text):
+        """Words typed without spaces ("toddlerraincoatwithhood", "tshirt4men") become separate
+        words when every piece is a known word; anything the catalog knows stays as it is."""
+        return RUN_TOGETHER_RE.sub(self._split_word, text)
+
+    def _known_word(self, word):
+        return (word in self.spell.surface or word in self.raw_stopwords or word in self.foreign
+                or self.bm25.df(stem(word)) > 0)
+
+    def _split_word(self, match):
+        word = match.group(0)
+        if word.isdigit() or self._known_word(word):
+            return word
+        out = []
+        parts = re.findall(r'[a-z]+|\d+', word)
+        for part in parts:
+            pieces = None if part.isdigit() or self._known_word(part) else self._segment(part)
+            if pieces and len(pieces) < 3 and len(parts) == 1:
+                pieces = None    # two words may be one real word ("suitcase", "headphones")
+            out.extend(pieces or [part])
+        return ' '.join(out)
+
+    def _segment(self, word):
+        """Fewest dictionary words that spell the word exactly, or None."""
+        def usable(piece):
+            if piece in self.raw_stopwords:
+                return len(piece) >= 2
+            term = self.spell.surface.get(piece)
+            return len(piece) >= 3 and term is not None and (term in self.spell.protected
+                                                             or self.spell.freq.get(term, 0) >= 50)
+        best = [None] * (len(word) + 1)
+        best[0] = []
+        for end in range(1, len(word) + 1):
+            for start in range(max(0, end - 15), end):
+                if best[start] is not None and usable(word[start:end]):
+                    option = best[start] + [word[start:end]]
+                    if best[end] is None or len(option) < len(best[end]):
+                        best[end] = option
+        return best[-1] if best[-1] is not None and len(best[-1]) >= 2 else None
 
     def _inflected(self, match):
         """An inflected foreign word ("rojos", "noires") whose base form is known; English words stay."""

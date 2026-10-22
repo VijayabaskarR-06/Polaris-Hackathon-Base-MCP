@@ -91,6 +91,8 @@ NUMBER_K = re.compile(r'(?<!\by)(\d+(?:\.\d+)?)\s*k\b')    # "2k" -> 2000, but "
 NUMBER_COMMA = re.compile(r'(?<=\d),(?=\d{3}\b)')
 CURRENCY = re.compile(r'₹|\brs\.?(?=\s|\d|$)|\brupees?\b|\binr\b|\binr\.')
 WITH_ABBREVIATION = re.compile(r'\bw/(o\b)?')    # "top w/ matching bottoms", "dress w/o sleeves"
+STRETCHED = re.compile(r'([a-z])\1{2,}')          # "hooooodie", "sooo cute": at most a double letter
+TSHIRT_SLIP = re.compile(r'\bt[\s\-]?(?:shrit|shrt|sirt|shirtt|shrti|sjirt|shitr|shirrt)(s?)\b')   # "t-shrit"
 
 
 EMOJI_WORDS = {
@@ -172,6 +174,8 @@ def normalize_query(query):
     text = query.replace('₹', ' inr ')
     text = EMOJI_RE.sub(lambda m: ' ' + EMOJI_WORDS[m.group(0)] + ' ', text)
     text = fold_accents(text).lower()
+    text = STRETCHED.sub(r'\1\1', text)
+    text = TSHIRT_SLIP.sub(r'tshirt\1', text)
     text = WITH_ABBREVIATION.sub(lambda m: ' without ' if m.group(1) else ' with ', text)
     text = CURRENCY.sub(' inr ', text)
     text = NUMBER_COMMA.sub('', text)

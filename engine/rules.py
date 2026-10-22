@@ -168,6 +168,9 @@ PLACEHOLDER_OBJECTS = {'stuff', 'thing', 'item', 'clothe', 'clothing', 'garment'
 GENERIC_GARMENT_WORDS = {'shirt', 'top', 'tee', 'tshirt', 'wear', 'set', 'clothe', 'clothing', 'outfit', 'item',
                          'sport', 'sports', 'style', 'piece', 'garment', 'fashion', 'thing', 'stuff'}
 PREPOSITIONS = {'for', 'with', 'to', 'in', 'on', 'at', 'from', 'during', 'like', 'without', 'by', 'near', 'into'}
+# Words naming when, not what: in "prom night" or "wedding day" the occasion is the head.
+TIME_WORDS = {'night', 'day', 'evening', 'morning', 'afternoon', 'weekend', 'eve', 'time', 'season', 'event',
+              'function', 'ceremony', 'celebration'}
 
 
 @dataclass
@@ -424,7 +427,10 @@ class RulePlanner:
                         seg.primary_types.append(types[0])
                     # "jeans" -> Trousers: a trouser only counts as jeans if its text says so.
                     type_terms = {t for name in types for t in tokenize(name.replace('/', ' '))}
-                    if types and not set(phrase) <= type_terms:
+                    # "half pants" (Shorts), "sipper" (Waterbottle): a plain synonym whose own keyword
+                    # is the type's name needs no word of the phrase in the product.
+                    synonym = any(tokenize(k) and set(tokenize(k)) <= type_terms for k in keywords)
+                    if types and not set(phrase) <= type_terms and not synonym:
                         specific = [t for t in phrase if t not in type_terms and t not in GENERIC_GARMENT_WORDS]
                         for keyword in keywords:
                             specific += [t for t in tokenize(keyword) if t not in GENERIC_GARMENT_WORDS
@@ -517,10 +523,13 @@ class RulePlanner:
         ("travel pillow")."""
         if not seg.content:
             return None
-        before = [kind for pos, kind in seg.content if prep_at is None or pos < prep_at]
+        words = dict(seg.content_words)
+        before = [(pos, kind) for pos, kind in seg.content if prep_at is None or pos < prep_at]
+        while len(before) > 1 and words.get(before[-1][0]) in TIME_WORDS:
+            before.pop()
         if not before:
             return 'placeholder'      # "something to keep my hands warm": the purpose defines it
-        return before[-1]
+        return before[-1][1]
 
     # ----- plan assembly -------------------------------------------------
     def plan(self, query, recs=True):
@@ -530,6 +539,7 @@ class RulePlanner:
         signals = Signals()
         text = normalize_query(self.vocab.native_to_english(query))
         text = self.vocab.translate_text(text)
+        text = self.vocab.split_run_together(text)
         if INJECTION_RE.search(text):
             signals.injection = True
         words = {stem(t) for t in raw_tokens(text)}
@@ -1141,6 +1151,8 @@ class RulePlanner:
         choice.required_sections = list(seg.required_sections)
         choice.head = self.head_kind(seg, seg.prep_at)
         before = [w for pos, w in seg.content_words if seg.prep_at is None or pos < seg.prep_at]
+        while len(before) > 1 and before[-1] in TIME_WORDS:
+            before.pop()
         choice.head_word = before[-1] if before else None
         choice.color_families = [list(f) for f in seg.colors]
         choice.type_words = list(seg.type_words)

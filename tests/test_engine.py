@@ -129,6 +129,26 @@ class EngineTests(unittest.TestCase):
                              for i in ids))
         self.assertEqual({self.products[i]['product_type'] for i in self.ids(query='no show socks')}, {'Socks'})
 
+    def test_typos_shorthand_and_synonyms(self):
+        for query, allowed in (('trowzers', {'Trousers'}), ('hooooodie', {'Hoodie', 'Sweater'}), ('t-shrit', {'T-shirt'}),
+                               ('nvy blzr', {'Blazer'}), ('toddlerraincoatwithhood', {'Jacket', 'Coat'}),
+                               ('half pants for boys', {'Shorts'}), ('plushie', {'Soft Toys'}),
+                               ('know the time without my phone', {'Watch'})):
+            with self.subTest(query=query):
+                types = {self.products[i]['product_type'] for i in self.ids(query=query)}
+                self.assertTrue(types and types <= allowed, types)
+        self.assertTrue(self.ids(query='prom night'))
+        self.assertEqual(self.ids(query='a suitcase for air travel'), [])
+
+    def test_one_accompaniment_per_main_product(self):
+        out = self.search(query='Find a black dress with a matching bag under INR 1500', include_recommendations=True)
+        anchors = [r['for_product_id'] for r in out['recommendations']]
+        self.assertEqual(len(anchors), 5)
+        self.assertEqual(len(set(anchors)), 5)
+        out = self.search(query='A black dress with a matching perfume under INR 2000', include_recommendations=True)
+        self.assertTrue(out['results'])
+        self.assertEqual(out['recommendations'], [])
+
     def test_ceremony_colours(self):
         for query, family in (('haldi', 'Yellow'), ('mehendi', 'Green'), ('karwa chauth', 'Red')):
             with self.subTest(query=query):

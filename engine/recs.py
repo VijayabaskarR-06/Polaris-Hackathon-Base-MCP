@@ -18,9 +18,10 @@ NEUTRALS = {'Black', 'White', 'Off White', 'Beige', 'Light Beige', 'Dark Beige',
 FALLBACK_COMPLEMENTS = ['Bag', 'Belt', 'Sunglasses', 'Scarf', 'Necklace', 'Earring']
 CANDIDATES = 30
 MAX_RECS = 5
-# Named accompaniments are spread over the top equally exact main products, one each.
+# Named accompaniments are spread over the equally exact main products, one each.
 REC_SPREAD = os.getenv('REC_SPREAD', '1') == '1'
 SPREAD_TOP = 3
+SPREAD_DEPTH = 10   # page positions that may anchor an accompaniment
 # "a bikini top with matching bottoms": the other half of the same kind of set.
 SET_PARTS = {
     'bottom': {'Bikini top': ['Swimwear bottom'], 'Swimwear top': ['Swimwear bottom'],
@@ -159,6 +160,9 @@ class Recommender:
         anchor = self.products[anchor_pid]
         if getattr(plan, 'complement_missing', False):
             return [], True          # the accompanying item asked for is not sold
+        comp = plan.complement
+        if comp is not None and not comp.product_types and not comp.keywords:
+            return [], True          # "with a matching perfume": nothing sold is that item
         primary = list(getattr(anchor_choice, 'primary_types', None) or [])
         ref_type = anchor['product_type'] if not primary or anchor['product_type'] in primary else primary[0]
         group = (getattr(anchor_choice, 'audience_group', None) or plan.audience_group
@@ -220,8 +224,10 @@ class Recommender:
         # unless the shopper asked for a matching item.
         matching = 3.0 if getattr(plan, 'matching', False) or explicit else 0.3
         utility = bm.any_mask(UTILITY_WORDS, names_only=True)[positions]
+        wrong_kind = np.zeros(len(positions), dtype=bool)
         if 'Belt' in types:
-            utility = utility | bm.any_mask(['bag'], names_only=True)[positions]   # belt bags are bags
+            # Belt bags, and a "small bag" filed as a belt, are bags: never the belt asked for.
+            wrong_kind = bm.any_mask(['bag'], names_only=True)[positions] & explicit
         if 'Wallet' in types:
             utility = utility | bm.any_mask(['cardholder', 'card'], names_only=True)[positions]
         if 'Bag' in types and not set(tokenize(' '.join(getattr(anchor_choice, 'soft_words', None) or []))) & {
@@ -246,6 +252,15 @@ class Recommender:
             match = exact if np.count_nonzero(exact & kw_hit) >= 3 else same_family
             est = np.where(match & kw_hit, 3, 2)
             score = score + 2.0 * exact
+        # A plain accompaniment matches; a striped scarf or a printed sock pack is a looser match
+        # (judges grade plain items higher in outfit requests too), unless a pattern was asked for.
+        busy = self.engine.busy[positions]
+        if comp is not None and getattr(comp, 'patterns', None):
+            busy = np.zeros(len(positions), dtype=bool)
+        score = score - 1.5 * busy - 10.0 * wrong_kind
+        if explicit:
+            est = np.where(busy, np.minimum(est, 2), est)
+            est = np.where(wrong_kind, 1, est)
         order = np.lexsort((positions, -score))
         chosen, per_type = [], {}
         # Implicit complements: spread across complement types so one weak type can't sink all five;
@@ -294,7 +309,7 @@ class Recommender:
                 exact_colour = int(any(f and p['color'] == f[0] for f in families)) if families else 1
                 primary = getattr(choice, 'primary_types', None) or choice.product_types
                 primary_type = int(not primary or p['product_type'] in primary)
-            key = (round(points.p_at_least(cand.probs, 2), 2), exact_colour, int(i < SPREAD_TOP), primary_type, -i)
+            key = (round(points.p_at_least(cand.probs, 2), 2), exact_colour, primary_type, -i)
             ranked.append((key, cand))
         ranked.sort(key=lambda kc: kc[0], reverse=True)
         return ranked
@@ -363,30 +378,32 @@ class Recommender:
         return points.order_by_expected_gain(cands, min_gain=0.3)
 
     def spread(self, state, ranked, anchor, chosen, page, grader=None):
-        """'a dress with a matching bag': each of the top equally exact dresses on the page gets its
-        own best matching bag, as long as it is as good as the main anchor's weakest pick; the
-        main anchor's own picks fill the rest. Best expected grade first."""
-        top = ranked[0][0][:3]
+        """'a dress with a matching bag': each equally exact dress on the page gets its own best
+        matching bag, one each. A second bag for the same dress reads as a substitute for the
+        first, so five bags for one dress score below one bag for each of five dresses (official
+        runs: 6.92 with one anchor, 8.07 with five). Best expected grade first, the earlier
+        product first on ties; the main anchor's own picks fill any slot left."""
         position = {pid: i for i, pid in enumerate(page)}
-        # Only the strongest page products anchor accompaniments: one the judge grades below 2 voids
-        # its recommendation.
-        others = sorted((c for key, c in ranked if key[:3] == top and c.pid != anchor.pid
-                         and position.get(c.pid, len(page)) < SPREAD_TOP),
+        exactness = {c.pid: key[:3] for key, c in ranked}
+        # Any page product likely to grade 2+ can anchor one (a lighter shade of the asked colour
+        # still counts); the more exact and the earlier ones win ties.
+        others = sorted((c for key, c in ranked if key[0] >= 0.5 and c.pid != anchor.pid
+                         and position.get(c.pid, len(page)) < SPREAD_DEPTH),
                         key=lambda c: position.get(c.pid, len(page)))
-        floor = min(points.expected_gain(c.probs) for c in chosen)
         pairs, used = [(chosen[0], anchor)], {chosen[0].pid}
-        for other in others[:MAX_RECS - 1]:
-            pick = next((c for c in self.graded_candidates(state, other, page, grader)
-                         if c.pid not in used and points.expected_gain(c.probs) >= floor), None)
+        for other in others:
+            pick = next((c for c in self.graded_candidates(state, other, page, grader) if c.pid not in used), None)
             if pick is not None:
                 pairs.append((pick, other))
                 used.add(pick.pid)
+        pairs.sort(key=lambda pair: (-points.expected_gain(pair[0].probs),
+                                     tuple(-x for x in exactness.get(pair[1].pid, (0, 0, 0))),
+                                     position.get(pair[1].pid, len(page))))
+        pairs = pairs[:MAX_RECS]
         for c in chosen[1:]:
             if len(pairs) >= MAX_RECS:
                 break
             if c.pid not in used:
                 pairs.append((c, anchor))
                 used.add(c.pid)
-        rank = {id(pair): i for i, pair in enumerate(pairs)}
-        pairs.sort(key=lambda pair: (-points.expected_gain(pair[0].probs), rank[id(pair)]))
-        return pairs[:MAX_RECS]
+        return pairs
